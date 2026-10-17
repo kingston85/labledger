@@ -1,0 +1,24 @@
+# Flutter / Dart
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+pubspec.lock
+.metadata
+
+# Android (generated in CI by `flutter create`)
+android/
+*.apk
+*.aab
+*.jks
+*.keystore
+key.properties
+
+# IDE
+.idea/
+.vscode/
+*.iml
+.DS_Store
