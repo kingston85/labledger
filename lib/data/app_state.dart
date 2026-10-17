@@ -139,6 +139,13 @@ class AppState extends ChangeNotifier {
       ..addAll(list('charts').map(ControlChart.fromJson));
   }
 
+  /// Replaces everything with the contents of a backup file.
+  void restore(Map<String, dynamic> data) {
+    _fromJson(data);
+    _ensureBuiltIns();
+    notifyListeners();
+  }
+
   // ---------------- Helpers ----------------
 
   String nextCode() => '${settings.idPrefix}-${DateTime.now().year}-${settings.nextSeq.toString().padLeft(4, '0')}';

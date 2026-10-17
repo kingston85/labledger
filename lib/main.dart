@@ -71,30 +71,69 @@ class ShellState extends State<Shell> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState s) {
-    if (s == AppLifecycleState.paused || s == AppLifecycleState.inactive) AppScope.read(context).saveNow();
+    if (s != AppLifecycleState.resumed) AppScope.read(context).saveNow();
   }
 
   void go(int i) => setState(() => tab = i);
 
+  static const _dest = [
+    (Icons.space_dashboard_outlined, Icons.space_dashboard_rounded, 'Home'),
+    (Icons.science_outlined, Icons.science_rounded, 'Samples'),
+    (Icons.show_chart_rounded, Icons.show_chart_rounded, 'Calibrate'),
+    (Icons.verified_outlined, Icons.verified_rounded, 'QC'),
+    (Icons.more_horiz_rounded, Icons.more_horiz_rounded, 'More'),
+  ];
+
+  void _select(int i) {
+    HapticFeedback.selectionClick();
+    go(i);
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.lb;
+    final wide = MediaQuery.sizeOf(context).width >= 840;
+    final pages = IndexedStack(index: tab, children: _pages);
+    if (wide) {
+      // PC / tablet: side rail, and keep reading width comfortable.
+      return Scaffold(
+        body: Row(
+          children: [
+            NavigationRail(
+              selectedIndex: tab,
+              onDestinationSelected: _select,
+              backgroundColor: c.surface,
+              indicatorColor: c.accent.withOpacity(0.18),
+              labelType: NavigationRailLabelType.all,
+              leading: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 18),
+                child: Icon(Icons.biotech_rounded, color: c.accent, size: 30),
+              ),
+              destinations: [
+                for (final d in _dest)
+                  NavigationRailDestination(icon: Icon(d.$1), selectedIcon: Icon(d.$2), label: Text(d.$3)),
+              ],
+            ),
+            VerticalDivider(width: 1, color: c.line),
+            Expanded(
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 1180), child: pages),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     return Scaffold(
-      body: IndexedStack(index: tab, children: _pages),
+      body: pages,
       bottomNavigationBar: NavigationBar(
         selectedIndex: tab,
         backgroundColor: c.surface,
         indicatorColor: c.accent.withOpacity(0.18),
-        onDestinationSelected: (i) {
-          HapticFeedback.selectionClick();
-          go(i);
-        },
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.space_dashboard_outlined), selectedIcon: Icon(Icons.space_dashboard_rounded), label: 'Home'),
-          NavigationDestination(icon: Icon(Icons.science_outlined), selectedIcon: Icon(Icons.science_rounded), label: 'Samples'),
-          NavigationDestination(icon: Icon(Icons.show_chart_rounded), label: 'Calibrate'),
-          NavigationDestination(icon: Icon(Icons.verified_outlined), selectedIcon: Icon(Icons.verified_rounded), label: 'QC'),
-          NavigationDestination(icon: Icon(Icons.more_horiz_rounded), label: 'More'),
+        onDestinationSelected: _select,
+        destinations: [
+          for (final d in _dest) NavigationDestination(icon: Icon(d.$1), selectedIcon: Icon(d.$2), label: d.$3),
         ],
       ),
     );

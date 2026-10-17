@@ -57,13 +57,34 @@ class MoreScreen extends StatelessWidget {
           }),
           tile(Icons.backup_outlined, 'Back up all data', 'One file with every sample, curve and QC record',
               () => shareBackupFile(context, app.saveNow)),
+          tile(Icons.settings_backup_restore_rounded, 'Restore from backup', 'Load a backup file from your phone or PC (replaces current data)',
+              () async {
+            final data = await pickBackup(context);
+            if (data == null || !context.mounted) return;
+            final n = (data['samples'] as List).length;
+            final ok = await showDialog<bool>(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: const Text('Restore backup?'),
+                content: Text('The backup has $n samples. Everything currently in LabLedger on this device will be replaced.'),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+                  FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Restore')),
+                ],
+              ),
+            );
+            if (ok == true && context.mounted) {
+              app.restore(data);
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Restored $n samples.')));
+            }
+          }),
           if (app.hasDemo)
             tile(Icons.cleaning_services_outlined, 'Remove demo data', 'Clear the example samples, curve and QC', () {
               app.clearDemo();
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Demo data removed.')));
             }, color: c.fair),
           const SizedBox(height: 16),
-          Center(child: Text('LabLedger 0.2 · data stays on this phone', style: LBText.body(c.inkDim, size: 12))),
+          Center(child: Text('LabLedger 0.3 · data stays on this device', style: LBText.body(c.inkDim, size: 12))),
         ],
       ),
     );

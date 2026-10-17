@@ -12,8 +12,12 @@ class Storage {
   static const _fileName = 'labledger_data.json';
 
   static Future<File> file() async {
-    final dir = await getApplicationDocumentsDirectory();
-    return File('${dir.path}/$_fileName');
+    // Phones keep data in the app's private documents folder; on a PC that
+    // would be the user's Documents, so use the per-user app data folder.
+    final desktop = Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+    final dir = desktop ? await getApplicationSupportDirectory() : await getApplicationDocumentsDirectory();
+    if (!await dir.exists()) await dir.create(recursive: true);
+    return File('${dir.path}${Platform.pathSeparator}$_fileName');
   }
 
   static Future<Map<String, dynamic>?> load() async {
@@ -32,6 +36,7 @@ class Storage {
     final f = await file();
     final tmp = File('${f.path}.tmp');
     await tmp.writeAsString(jsonEncode(data), flush: true);
+    if (Platform.isWindows && await f.exists()) await f.delete(); // rename cannot replace on Windows
     await tmp.rename(f.path);
   }
 }

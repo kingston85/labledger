@@ -1,4 +1,4 @@
-name: Build APK
+name: Build apps
 
 on:
   push:
@@ -79,14 +79,74 @@ jobs:
           name: LabLedger-apk
           path: LabLedger-${{ github.run_number }}.apk
 
-      - name: Publish release for phone download
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          channel: stable
+          cache: true
+
+      - name: Generate Windows platform files
+        shell: bash
+        run: |
+          flutter config --enable-windows-desktop
+          if [ ! -d windows ]; then
+            flutter create --platforms=windows --org lr.labledger --project-name labledger .
+          fi
+          python tool/patch_windows.py LabLedger
+
+      - name: Build Windows app
+        shell: bash
+        run: |
+          set -o pipefail
+          flutter build windows --release 2>&1 | tee build-win.log
+
+      - name: Report build error
+        if: failure()
+        shell: bash
+        run: |
+          if [ -f build-win.log ]; then
+            msg=$(grep -n -B3 -A25 -iE "error|failed" build-win.log | head -150 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=Windows build failed::${msg}"
+          fi
+
+      - name: Package zip
+        shell: pwsh
+        run: |
+          $out = "LabLedger-Windows-${{ github.run_number }}"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item -Recurse build\windows\x64\runner\Release\* $out
+          Set-Content -Path "$out\README.txt" -Value "LabLedger for Windows`r`n`r`nDouble-click LabLedger.exe to start. Keep all files in this folder together.`r`nIf Windows shows 'Windows protected your PC', click 'More info' then 'Run anyway'.`r`nYour data is saved in %APPDATA%\LabLedger\LabLedger."
+          Compress-Archive -Path $out -DestinationPath "$out.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LabLedger-windows
+          path: LabLedger-Windows-${{ github.run_number }}.zip
+
+  release:
+    needs: [build, windows]
+    if: always() && needs.build.result == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
           name: LabLedger build ${{ github.run_number }}
           body: |
-            Install on Android: download the APK below on your phone and open it.
-            You may need to allow "Install unknown apps" for your browser.
+            Android: download the APK on your phone and open it (allow "Install unknown apps" for your browser).
+            Windows: download the zip, extract it, and run LabLedger.exe. On the first run choose "More info" then "Run anyway".
             Commit: ${{ github.sha }}
-          files: LabLedger-${{ github.run_number }}.apk
+          files: dist/*
           make_latest: true
