@@ -8,6 +8,7 @@ import '../main.dart';
 import '../theme/app_theme.dart';
 import '../widgets/components.dart';
 import 'calibration_screen.dart';
+import 'investigation_screen.dart';
 import 'qc_screen.dart';
 import 'sample_detail_screen.dart';
 import 'sample_form_screen.dart';
@@ -113,6 +114,28 @@ class HomeScreen extends StatelessWidget {
                       ),
                     ),
                   ],
+                ),
+                const SizedBox(height: 10),
+                LBCard(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const InvestigationsScreen())),
+                  child: Row(
+                    children: [
+                      Icon(Icons.travel_explore_rounded, color: c.accent),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Investigations', style: LBText.body(c.ink, weight: FontWeight.w700)),
+                            Text('${app.projects.length} projects · matrix, control comparison, findings, report',
+                                style: LBText.body(c.inkDim, size: 12.5)),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.chevron_right_rounded, color: c.inkDim),
+                    ],
+                  ),
                 ),
                 const SectionHeader('Sample pipeline'),
                 _Pipeline(samples: app.samples),

@@ -5,6 +5,8 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:labledger/core/calibration.dart';
 import 'package:labledger/core/guidelines.dart';
+import 'package:labledger/core/investigation.dart';
+import 'package:labledger/core/utm.dart';
 import 'package:labledger/core/stats.dart';
 import 'package:labledger/data/models.dart';
 
@@ -161,5 +163,97 @@ void main() {
     final rb = CalibrationRun.fromJson(jsonDecode(jsonEncode(run.toJson())) as Map<String, dynamic>);
     expect(rb.standards[1][1], 0.04);
     expect(rb.readings.single.dilution, 5);
+  });
+
+  group('UTM 29N (vs pyproj EPSG:32629)', () {
+    test('forward', () {
+      final u = toUtm(7.5427192, -8.6069047, zone: 29);
+      expect(u.easting, closeTo(543366.0119, 0.01));
+      expect(u.northing, closeTo(833764.8269, 0.01));
+      expect(u.zoneLabel, '29N');
+    });
+    test('inverse', () {
+      final (lat, lon) = fromUtm(537569, 837710);
+      expect(lat, closeTo(7.578449648, 1e-7));
+      expect(lon, closeTo(-8.659423609, 1e-7));
+    });
+    test('decimal degrees typed in UTM columns are recognised', () {
+      final p = parseCoordinatePair(7.543189, -8.608411)!;
+      expect(p.$1, closeTo(7.543189, 1e-9));
+      expect(p.$2, closeTo(-8.608411, 1e-9));
+    });
+  });
+
+  group('Field report conventions', () {
+    test('parameter aliases find Liberian limits', () {
+      final lr = liberiaWater();
+      expect(findLimit(lr, 'Conductivity (µS/cm)')!.max, 150);
+      expect(findLimit(lr, 'Iron (mg/L)')!.max, 2.0);
+      expect(findLimit(lr, 'Aluminum (ppm)')!.max, 0.75);
+      expect(findLimit(lr, 'TSS')!.max, 50);
+      expect(findLimit(lr, 'Hardness')!.max, 200);
+      expect(findLimit(lr, 'Nitrate')!.max, 50);
+      expect(findLimit(lr, 'Bi')!.max, 0.7);
+      expect(findLimit(lr, 'Strontium (ppm)'), isNull);
+    });
+    test('result text parsing', () {
+      final nd = parseResultText('<0.001');
+      expect(nd.belowLod, isTrue);
+      expect(nd.lod, 0.001);
+      final tri = parseResultText('2.05 2.08 2.08');
+      expect(tri.value, closeTo(2.07, 1e-12));
+      expect(tri.replicates.length, 3);
+      expect(parseResultText('6.47').value, 6.47);
+      expect(parseResultText('').isEmpty, isTrue);
+    });
+    test('sample codes', () {
+      expect(buildSampleCode('kr', Matrix.surfaceWater, 4, control: true), 'KR-C-SW-004');
+      expect(buildSampleCode('BT', Matrix.groundwater, 9), 'BT-GW-009');
+      expect(codeSeq('YC-G-SW-008'), 8);
+      expect(codeLooksControl('GR-C-SL-001'), isTrue);
+      expect(codeLooksControl('YC-SW-005'), isFalse);
+    });
+    test('°F to °C', () => expect(fahrenheitToCelsius(71.6), closeTo(22.0, 1e-9)));
+  });
+
+  group('Investigation analysis', () {
+    Sample mk(String code, bool ctrl, Map<String, double> v, {Matrix m = Matrix.surfaceWater}) => Sample(
+          id: code,
+          code: code,
+          matrix: m,
+          isControl: ctrl,
+          results: [for (final e in v.entries) Result(id: '$code${e.key}', parameter: e.key, value: e.value, unit: e.key == 'pH' ? '' : (m.isSolid ? 'mg/kg' : 'mg/L'))],
+        );
+    final lr = liberiaWater();
+
+    test('exceedance everywhere except control is reported', () {
+      final samples = [
+        mk('KR-SW-001', false, {'Iron (Fe)': 2.77, 'pH': 6.47, 'Nitrate (as NO3)': 14}),
+        mk('KR-SW-002', false, {'Iron (Fe)': 2.20, 'pH': 8.13, 'Nitrate (as NO3)': 37}),
+        mk('KR-C-SW-004', true, {'Iron (Fe)': 0.08, 'pH': 7.19, 'Nitrate (as NO3)': 25}),
+      ];
+      final g = buildInvestigation(samples, (_) => lr).single;
+      expect(g.samples.first.code, 'KR-C-SW-004');
+      final f = writeFindings(g).join('\n');
+      expect(f, contains('Iron (Fe) exceeded the ≤ 2 mg/L limit at every sampling point except the control (KR-C-SW-004)'));
+      expect(f, contains('pH was below the 6.5–8.5 range at KR-SW-001 (6.47)'));
+      expect(f, contains('Complied at all points: Nitrate (as NO3)'));
+      expect(g.factor(samples[0], 'Iron (Fe)'), closeTo(2.77 / 0.08, 1e-9));
+      expect(g.factor(samples[0], 'pH'), isNull);
+    });
+
+    test('contamination factor and pollution load index', () {
+      final samples = [
+        mk('GR-C-SL-001', true, {'Iron (Fe)': 0.5, 'Zinc (Zn)': 1.0}, m: Matrix.soil),
+        mk('GR-SL-001', false, {'Iron (Fe)': 4.0, 'Zinc (Zn)': 2.0}, m: Matrix.soil),
+      ];
+      final g = buildInvestigation(samples, (_) => lr).single;
+      expect(g.solid, isTrue);
+      expect(g.factor(samples[1], 'Iron (Fe)'), closeTo(8, 1e-12));
+      expect(g.pli(samples[1]), closeTo(4, 1e-12)); // sqrt(8 × 2)
+      expect(cfClass(8), 'Very high');
+      expect(cfClass(2), 'Moderate');
+      expect(writeFindings(g).join('\n'), contains('PLI 4.00'));
+    });
   });
 }

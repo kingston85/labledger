@@ -7,6 +7,7 @@ import '../data/models.dart';
 import '../theme/app_theme.dart';
 import '../widgets/components.dart';
 import '../widgets/share.dart';
+import 'investigation_screen.dart';
 import 'stats_screen.dart';
 
 class MoreScreen extends StatelessWidget {
@@ -34,9 +35,11 @@ class MoreScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
         children: [
+          tile(Icons.travel_explore_rounded, 'Investigations', 'Results matrix, standards, control comparison, findings, report',
+              () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const InvestigationsScreen()))),
           tile(Icons.functions_rounded, 'Statistics', 'Descriptives, t-tests, ANOVA, Grubbs outlier test',
               () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const StatsScreen()))),
-          tile(Icons.rule_folder_outlined, 'Limit sets', 'WHO drinking water and your own standards',
+          tile(Icons.rule_folder_outlined, 'Limit sets', 'Liberian Class I, WHO drinking water and your own',
               () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LimitSetsScreen()))),
           tile(Icons.settings_rounded, 'Settings', 'Lab name, analyst, sample IDs, QC acceptance limits',
               () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()))),
@@ -60,7 +63,7 @@ class MoreScreen extends StatelessWidget {
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Demo data removed.')));
             }, color: c.fair),
           const SizedBox(height: 16),
-          Center(child: Text('LabLedger 0.1 · data stays on this phone', style: LBText.body(c.inkDim, size: 12))),
+          Center(child: Text('LabLedger 0.2 · data stays on this phone', style: LBText.body(c.inkDim, size: 12))),
         ],
       ),
     );
@@ -309,6 +312,7 @@ class SettingsScreen extends StatelessWidget {
           const SectionHeader('QC acceptance limits'),
           field('Calibration r² minimum', '${st.r2Min}', (v) => st.r2Min = n(v, st.r2Min), number: true),
           field('Duplicate RPD maximum (%)', '${st.rpdMax}', (v) => st.rpdMax = n(v, st.rpdMax), number: true),
+          field('Replicate RSD maximum (%)', '${st.replicateRsdMax}', (v) => st.replicateRsdMax = n(v, st.replicateRsdMax), number: true),
           Row(children: [
             Expanded(child: field('Spike recovery low %', '${st.spikeLo}', (v) => st.spikeLo = n(v, st.spikeLo), number: true)),
             const SizedBox(width: 10),

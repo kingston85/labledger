@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/location_service.dart';
+import '../core/utm.dart';
 import '../data/app_state.dart';
 import '../data/models.dart';
 import '../theme/app_theme.dart';
@@ -24,6 +25,11 @@ class _SampleFormScreenState extends State<SampleFormScreen> {
   final _collector = TextEditingController();
   final _pres = TextEditingController();
   final _notes = TextEditingController();
+  final _sitePrefix = TextEditingController();
+  final _east = TextEditingController();
+  final _north = TextEditingController();
+  bool _utm = false;
+  bool _control = false;
   Matrix _matrix = Matrix.surfaceWater;
   SampleStatus _status = SampleStatus.collected;
   DateTime _collected = DateTime.now();
@@ -59,7 +65,34 @@ class _SampleFormScreenState extends State<SampleFormScreen> {
       _collected = s.collectedAt;
       _received = s.receivedAt;
       _limitSet = s.limitSetId ?? app.settings.defaultLimitSetId;
+      _control = s.isControl;
+      final m = RegExp(r'^([A-Za-z0-9]+(?:-[A-Za-z])?)-').firstMatch(s.code);
+      if (m != null) _sitePrefix.text = m.group(1)!.replaceAll(RegExp(r'-C$'), '');
     }
+    _syncUtmFromLatLon();
+  }
+
+  void _syncUtmFromLatLon() {
+    final lat = double.tryParse(_lat.text.trim()), lon = double.tryParse(_lon.text.trim());
+    if (lat == null || lon == null) return;
+    final u = toUtm(lat, lon, zone: 29);
+    _east.text = u.easting.toStringAsFixed(0);
+    _north.text = u.northing.toStringAsFixed(0);
+  }
+
+  void _syncLatLonFromUtm() {
+    final e = double.tryParse(_east.text.trim()), n = double.tryParse(_north.text.trim());
+    if (e == null || n == null) return;
+    final p = parseCoordinatePair(e, n);
+    if (p == null) return;
+    _lat.text = p.$1.toStringAsFixed(6);
+    _lon.text = p.$2.toStringAsFixed(6);
+  }
+
+  void _generateCode() {
+    final app = AppScope.read(context);
+    final seq = app.nextProjectSeq(_project.text);
+    setState(() => _code.text = buildSampleCode(_sitePrefix.text, _matrix, seq, control: _control));
   }
 
   Future<void> _gps() async {
@@ -79,6 +112,7 @@ class _SampleFormScreenState extends State<SampleFormScreen> {
     setState(() {
       _lat.text = p.latitude.toStringAsFixed(6);
       _lon.text = p.longitude.toStringAsFixed(6);
+      _syncUtmFromLatLon();
     });
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Position captured (±${(loc.accuracy ?? 0).toStringAsFixed(0)} m)')),
@@ -98,6 +132,7 @@ class _SampleFormScreenState extends State<SampleFormScreen> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a sample code.')));
       return;
     }
+    if (_utm) _syncLatLonFromUtm();
     final lat = double.tryParse(_lat.text.trim()), lon = double.tryParse(_lon.text.trim());
     if (widget.sample == null) {
       final s = app.addSample(Sample(
@@ -115,6 +150,7 @@ class _SampleFormScreenState extends State<SampleFormScreen> {
         notes: _notes.text.trim(),
         status: _status,
         limitSetId: _limitSet,
+        isControl: _control,
       ));
       Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => SampleDetailScreen(sample: s)));
     } else {
@@ -133,9 +169,24 @@ class _SampleFormScreenState extends State<SampleFormScreen> {
         s.notes = _notes.text.trim();
         s.status = _status;
         s.limitSetId = _limitSet;
+        s.isControl = _control;
       });
       Navigator.pop(context);
     }
+  }
+
+  String _coordHint() {
+    if (_utm) {
+      final e = double.tryParse(_east.text.trim()), n = double.tryParse(_north.text.trim());
+      if (e == null || n == null) return 'WGS84 / UTM zone 29N (EPSG:32629)';
+      final p = parseCoordinatePair(e, n);
+      if (p == null) return 'Not a valid zone 29N coordinate';
+      final swapped = e.abs() <= 180 && n.abs() <= 180;
+      return '${swapped ? 'Looks like decimal degrees, read as lat/lon → ' : '= '}${p.$1.toStringAsFixed(6)}, ${p.$2.toStringAsFixed(6)}';
+    }
+    final lat = double.tryParse(_lat.text.trim()), lon = double.tryParse(_lon.text.trim());
+    if (lat == null || lon == null) return 'Decimal degrees, WGS84';
+    return '= UTM ${toUtm(lat, lon, zone: 29)}';
   }
 
   @override
@@ -152,42 +203,106 @@ class _SampleFormScreenState extends State<SampleFormScreen> {
         padding: const EdgeInsets.fromLTRB(18, 4, 18, 40),
         children: [
           TextField(
-            controller: _code,
-            style: LBText.reading(16, c.ink, weight: FontWeight.w700),
-            decoration: const InputDecoration(labelText: 'Sample code', helperText: 'Auto-numbered; you can change it'),
+            controller: _project,
+            decoration: const InputDecoration(labelText: 'Project / investigation', hintText: 'e.g. Bolo Town water investigation'),
+            textCapitalization: TextCapitalization.sentences,
           ),
-          gap(),
-          TextField(controller: _site, decoration: const InputDecoration(labelText: 'Site / location description'), textCapitalization: TextCapitalization.sentences),
-          gap(),
-          TextField(controller: _project, decoration: const InputDecoration(labelText: 'Project / client'), textCapitalization: TextCapitalization.sentences),
           gap(),
           DropdownButtonFormField<Matrix>(
             value: _matrix,
             decoration: const InputDecoration(labelText: 'Matrix'),
-            items: [for (final m in Matrix.values) DropdownMenuItem(value: m, child: Text(m.label))],
+            items: [for (final m in Matrix.values) DropdownMenuItem(value: m, child: Text('${m.label}  ·  ${m.code}'))],
             onChanged: (m) => setState(() => _matrix = m ?? _matrix),
           ),
-          const SectionHeader('Location'),
+          gap(),
+          LBCard(
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const PanelLabel('Sample code'),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _code,
+                  style: LBText.reading(17, c.ink, weight: FontWeight.w700),
+                  decoration: const InputDecoration(isDense: true, hintText: 'KR-SW-001'),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _sitePrefix,
+                        textCapitalization: TextCapitalization.characters,
+                        decoration: const InputDecoration(labelText: 'Site prefix', hintText: 'KR, YC, BT…', isDense: true),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    FilledButton.tonalIcon(
+                      onPressed: _generateCode,
+                      icon: const Icon(Icons.auto_fix_high_rounded, size: 18),
+                      label: const Text('Build code'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text('Format SITE-[C-]MATRIX-SEQ, numbered within the project (e.g. KR-C-SW-004).',
+                    style: LBText.body(c.inkDim, size: 11.5)),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: _control,
+                  onChanged: (v) => setState(() => _control = v),
+                  title: const Text('Control / background sample'),
+                  subtitle: const Text('Upstream or off-site point used as the clean baseline'),
+                ),
+              ],
+            ),
+          ),
+          gap(),
+          TextField(controller: _site, decoration: const InputDecoration(labelText: 'Location & description'), textCapitalization: TextCapitalization.sentences, maxLines: 2, minLines: 1),
+          SectionHeader(
+            'Location',
+            trailing: SegmentedButton<bool>(
+              segments: const [ButtonSegment(value: false, label: Text('Lat/Lon')), ButtonSegment(value: true, label: Text('UTM 29N'))],
+              selected: {_utm},
+              showSelectedIcon: false,
+              style: const ButtonStyle(visualDensity: VisualDensity.compact),
+              onSelectionChanged: (v) => setState(() {
+                if (_utm) {
+                  _syncLatLonFromUtm();
+                } else {
+                  _syncUtmFromLatLon();
+                }
+                _utm = v.first;
+              }),
+            ),
+          ),
           Row(
             children: [
               Expanded(
                 child: TextField(
-                  controller: _lat,
+                  controller: _utm ? _east : _lat,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
                   style: LBText.reading(14, c.ink),
-                  decoration: const InputDecoration(labelText: 'Latitude', isDense: true),
+                  onChanged: (_) => setState(() {}),
+                  decoration: InputDecoration(labelText: _utm ? 'Easting X (m)' : 'Latitude', isDense: true),
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: TextField(
-                  controller: _lon,
+                  controller: _utm ? _north : _lon,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
                   style: LBText.reading(14, c.ink),
-                  decoration: const InputDecoration(labelText: 'Longitude', isDense: true),
+                  onChanged: (_) => setState(() {}),
+                  decoration: InputDecoration(labelText: _utm ? 'Northing Y (m)' : 'Longitude', isDense: true),
                 ),
               ),
             ],
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(_coordHint(), style: LBText.reading(11.5, c.inkDim)),
           ),
           const SizedBox(height: 6),
           Align(

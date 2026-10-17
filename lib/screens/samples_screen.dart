@@ -177,9 +177,12 @@ class SampleTile extends StatelessWidget {
                 Row(
                   children: [
                     StatusChip(sample.status),
+                    if (sample.isControl) ...[const SizedBox(width: 6), Tag('CONTROL', color: c.good)],
                     const SizedBox(width: 6),
-                    Text('${sample.results.length} results · ${shortDate(sample.collectedAt)}',
-                        style: LBText.body(c.inkDim, size: 11.5)),
+                    Flexible(
+                      child: Text('${sample.results.length} results · ${shortDate(sample.collectedAt)}',
+                          style: LBText.body(c.inkDim, size: 11.5), overflow: TextOverflow.ellipsis),
+                    ),
                   ],
                 ),
               ],

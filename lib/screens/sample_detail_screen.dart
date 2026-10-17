@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 
 import '../core/guidelines.dart';
 import '../core/report.dart';
+import '../core/stats.dart';
+import '../core/utm.dart';
 import '../data/app_state.dart';
 import '../data/models.dart';
 import '../theme/app_theme.dart';
 import '../widgets/components.dart';
 import '../widgets/share.dart';
+import 'bulk_entry.dart';
 import 'home_screen.dart';
 import 'sample_form_screen.dart';
 import 'samples_screen.dart';
@@ -82,6 +85,7 @@ class SampleDetailScreen extends StatelessWidget {
           const SizedBox(height: 8),
           Wrap(spacing: 8, runSpacing: 6, children: [
             StatusChip(s.status),
+            if (s.isControl) Tag('CONTROL', color: c.good),
             Tag(s.matrix.label, color: c.inkDim),
             if (s.project.isNotEmpty) Tag(s.project, color: c.inkDim),
           ]),
@@ -97,6 +101,7 @@ class SampleDetailScreen extends StatelessWidget {
                 _kv(context, 'Preservation', s.preservation.isEmpty ? '—' : s.preservation),
                 _kv(context, 'Coordinates',
                     s.lat != null && s.lon != null ? '${s.lat!.toStringAsFixed(5)}, ${s.lon!.toStringAsFixed(5)}' : '—'),
+                if (s.lat != null && s.lon != null) _kv(context, 'UTM', toUtm(s.lat!, s.lon!, zone: 29).toString()),
                 _kv(context, 'Limits', set?.name ?? 'None'),
                 if (s.notes.isNotEmpty) _kv(context, 'Remarks', s.notes),
               ],
@@ -104,14 +109,33 @@ class SampleDetailScreen extends StatelessWidget {
           ),
           SectionHeader(
             'Results (${s.results.length})',
-            trailing: s.results.isEmpty
-                ? null
-                : Tag(bad > 0 ? '$bad over limit' : 'All within limits', color: bad > 0 ? c.poor : c.good),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (s.results.isNotEmpty) Tag(bad > 0 ? '$bad out of limit' : 'All within limits', color: bad > 0 ? c.poor : c.good),
+                IconButton(
+                  tooltip: 'Enter a parameter panel',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => showBulkEntry(context, s),
+                  icon: Icon(Icons.playlist_add_rounded, color: c.accent),
+                ),
+              ],
+            ),
           ),
           if (s.results.isEmpty)
             LBCard(
-              child: Text('No results yet. Tap "Add result", or calculate from a calibration curve.',
-                  style: LBText.body(c.inkDim, size: 13)),
+              onTap: () => showBulkEntry(context, s),
+              child: Row(
+                children: [
+                  Icon(Icons.playlist_add_rounded, color: c.accent),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text('No results yet. Tap here to enter a whole panel (field readings, mining metals, nutrients), '
+                        'use "Add result", or calculate from a calibration curve.',
+                        style: LBText.body(c.inkDim, size: 13)),
+                  ),
+                ],
+              ),
             )
           else
             for (var i = 0; i < s.results.length; i++)
@@ -263,6 +287,8 @@ class _ResultRow extends StatelessWidget {
                     if (r.method.isNotEmpty) r.method,
                     if (check.limit != null) 'limit ${check.limit!.text}',
                     if (r.source == 'calibration') 'from calibration',
+                    if (r.replicates.length > 1)
+                      'n=${r.replicates.length}, RSD ${Describe.of(r.replicates).rsd.toStringAsFixed(1)}%',
                   ].join(' · '),
                   style: LBText.body(c.inkDim, size: 12),
                 ),
@@ -363,7 +389,7 @@ class _ResultFormState extends State<_ResultForm> {
     final r = widget.existing;
     if (r != null) {
       _param.text = r.parameter;
-      _value.text = r.value?.toString() ?? '';
+      _value.text = r.replicates.length > 1 ? r.replicates.map(fmtValue).join(' ') : (r.value?.toString() ?? '');
       _lod.text = r.lod?.toString() ?? '';
       _method.text = r.method;
       _analyst.text = r.analyst;
@@ -379,7 +405,12 @@ class _ResultFormState extends State<_ResultForm> {
   void _save() {
     final app = AppScope.read(context);
     final p = _param.text.trim();
-    final v = double.tryParse(_value.text.trim());
+    final parsed = parseResultText(_value.text);
+    if (parsed.belowLod) {
+      _belowLod = true;
+      if (parsed.lod != null) _lod.text = parsed.lod.toString();
+    }
+    final v = parsed.value;
     if (p.isEmpty || (!_belowLod && v == null)) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a parameter and a value (or tick < LOD).')));
       return;
@@ -394,6 +425,7 @@ class _ResultFormState extends State<_ResultForm> {
       r.method = _method.text.trim();
       r.analyst = _analyst.text.trim();
       r.note = _note.text.trim();
+      r.replicates = _belowLod ? [] : parsed.replicates;
       if (widget.existing == null) {
         widget.sample.results.add(r);
         if (widget.sample.status.index < SampleStatus.inAnalysis.index) widget.sample.status = SampleStatus.inAnalysis;
@@ -407,13 +439,15 @@ class _ResultFormState extends State<_ResultForm> {
     final app = AppScope.of(context);
     final c = context.lb;
     final set = app.limitsFor(widget.sample);
+    final parsed = parseResultText(_value.text);
     final preview = Result(
       id: 'p',
       parameter: _param.text,
-      value: double.tryParse(_value.text),
-      belowLod: _belowLod,
+      value: parsed.value,
+      belowLod: _belowLod || parsed.belowLod,
       unit: _unit,
     );
+    final rep = parsed.replicates.length > 1 ? Describe.of(parsed.replicates) : null;
     final chk = checkResult(preview, set);
     final unitItems = {...units, _unit}.toList();
 
@@ -437,6 +471,7 @@ class _ResultFormState extends State<_ResultForm> {
                 _param.text = p;
                 final u = commonParameters[p];
                 if (u != null) _unit = (widget.sample.matrix.isSolid && u == 'mg/L') ? 'mg/kg' : u;
+                if (_method.text.trim().isEmpty) _method.text = defaultMethods[p] ?? '';
               }),
               fieldViewBuilder: (context, ctrl, focus, onSubmit) {
                 return TextField(
@@ -456,9 +491,9 @@ class _ResultFormState extends State<_ResultForm> {
                     controller: _value,
                     enabled: !_belowLod,
                     onChanged: (_) => setState(() {}),
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+                    keyboardType: TextInputType.text,
                     style: LBText.reading(17, c.ink, weight: FontWeight.w700),
-                    decoration: const InputDecoration(labelText: 'Result'),
+                    decoration: const InputDecoration(labelText: 'Result', hintText: '2.07 · <0.001 · 2.05 2.08 2.07'),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -473,6 +508,16 @@ class _ResultFormState extends State<_ResultForm> {
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              rep != null
+                  ? 'Replicates n=${rep.n}: mean ${fmtValue(rep.mean)}, SD ${fmtValue(rep.sd)}, RSD ${rep.rsd.toStringAsFixed(1)}%'
+                      '${rep.rsd > app.settings.replicateRsdMax ? '  ⚠ above ${app.settings.replicateRsdMax.toStringAsFixed(0)}%: repeat the analysis' : ''}'
+                  : parsed.belowLod
+                      ? 'Recorded as not detected${parsed.lod != null ? ' (< ${fmtValue(parsed.lod!)})' : ''}'
+                      : 'Tip: type triplicate readings separated by spaces to store their mean.',
+              style: LBText.reading(11.5, rep != null && rep.rsd > app.settings.replicateRsdMax ? c.poor : c.inkDim),
             ),
             CheckboxListTile(
               contentPadding: EdgeInsets.zero,

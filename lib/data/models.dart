@@ -36,6 +36,30 @@ extension MatrixX on Matrix {
   }
 
   bool get isSolid => this == Matrix.soil || this == Matrix.sediment || this == Matrix.waste;
+
+  /// Two-letter matrix code used in EPA sample IDs (e.g. KR-SW-001).
+  String get code {
+    switch (this) {
+      case Matrix.drinkingWater:
+        return 'DW';
+      case Matrix.surfaceWater:
+        return 'SW';
+      case Matrix.groundwater:
+        return 'GW';
+      case Matrix.wastewater:
+        return 'WW';
+      case Matrix.soil:
+        return 'SL';
+      case Matrix.sediment:
+        return 'SD';
+      case Matrix.air:
+        return 'AR';
+      case Matrix.waste:
+        return 'WS';
+      case Matrix.other:
+        return 'OT';
+    }
+  }
 }
 
 enum SampleStatus { collected, received, inAnalysis, reviewed, reported }
@@ -82,6 +106,7 @@ class Result {
   double dilution;
   String note;
   String source; // 'manual' or 'calibration'
+  List<double> replicates; // individual readings (e.g. triplicate); value holds their mean
 
   Result({
     required this.id,
@@ -96,7 +121,9 @@ class Result {
     this.dilution = 1,
     this.note = '',
     this.source = 'manual',
-  }) : date = date ?? DateTime.now();
+    List<double>? replicates,
+  })  : date = date ?? DateTime.now(),
+        replicates = replicates ?? [];
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -111,6 +138,7 @@ class Result {
         'dilution': dilution,
         'note': note,
         'source': source,
+        'replicates': replicates,
       };
 
   factory Result.fromJson(Map<String, dynamic> j) => Result(
@@ -126,6 +154,7 @@ class Result {
         dilution: _d(j['dilution']) ?? 1,
         note: j['note'] as String? ?? '',
         source: j['source'] as String? ?? 'manual',
+        replicates: [for (final v in (j['replicates'] as List? ?? const [])) (v as num).toDouble()],
       );
 }
 
@@ -144,6 +173,7 @@ class Sample {
   String notes;
   SampleStatus status;
   String? limitSetId;
+  bool isControl; // upstream / background reference sample
   final List<Custody> custody;
   final List<Result> results;
 
@@ -162,6 +192,7 @@ class Sample {
     this.notes = '',
     this.status = SampleStatus.collected,
     this.limitSetId,
+    this.isControl = false,
     List<Custody>? custody,
     List<Result>? results,
   })  : collectedAt = collectedAt ?? DateTime.now(),
@@ -183,6 +214,7 @@ class Sample {
         'notes': notes,
         'status': status.name,
         'limitSetId': limitSetId,
+        'isControl': isControl,
         'custody': [for (final c in custody) c.toJson()],
         'results': [for (final r in results) r.toJson()],
       };
@@ -202,6 +234,7 @@ class Sample {
         notes: j['notes'] as String? ?? '',
         status: _enum(SampleStatus.values, j['status'], SampleStatus.collected),
         limitSetId: j['limitSetId'] as String?,
+        isControl: j['isControl'] as bool? ?? false,
         custody: [for (final c in (j['custody'] as List? ?? const [])) Custody.fromJson((c as Map).cast<String, dynamic>())],
         results: [for (final r in (j['results'] as List? ?? const [])) Result.fromJson((r as Map).cast<String, dynamic>())],
       );
@@ -220,9 +253,9 @@ class Limit {
 
   String get text {
     String f(double v) => v.toString().replaceFirst(RegExp(r'\.0$'), '');
-    if (min != null && max != null) return '${f(min!)}–${f(max!)} $unit';
-    if (max != null) return '≤ ${f(max!)} $unit';
-    if (min != null) return '≥ ${f(min!)} $unit';
+    if (min != null && max != null) return '${f(min!)}–${f(max!)} $unit'.trim();
+    if (max != null) return '≤ ${f(max!)} $unit'.trim();
+    if (min != null) return '≥ ${f(min!)} $unit'.trim();
     return '—';
   }
 }
@@ -469,3 +502,18 @@ String shortDate(DateTime d) {
 
 String timeOfDay(DateTime d) => '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
 String dateTime(DateTime d) => '${shortDate(d)} ${timeOfDay(d)}';
+
+/// Builds an EPA-style sample code: SITE-[C-]MATRIX-SEQ, e.g. KR-C-SW-004.
+String buildSampleCode(String site, Matrix matrix, int seq, {bool control = false}) {
+  final st = site.trim().toUpperCase().replaceAll(RegExp(r'[^A-Z0-9-]'), '');
+  return [if (st.isNotEmpty) st, if (control) 'C', matrix.code, seq.toString().padLeft(3, '0')].join('-');
+}
+
+/// The trailing sequence number of a code like "YC-SW-006" (6), or null.
+int? codeSeq(String code) {
+  final m = RegExp(r'(\d+)\s*$').firstMatch(code);
+  return m == null ? null : int.tryParse(m.group(1)!);
+}
+
+/// True when a code marks a control sample ("KR-C-SW-004", "GR-C-SL-001").
+bool codeLooksControl(String code) => RegExp(r'(^|-)C(-|$)').hasMatch(code.toUpperCase());

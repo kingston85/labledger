@@ -7,6 +7,7 @@ import 'package:pdf/widgets.dart' as pw;
 import '../data/app_state.dart';
 import '../data/models.dart';
 import 'guidelines.dart';
+import 'utm.dart';
 
 String fmtValue(double v) {
   final a = v.abs();
@@ -120,6 +121,8 @@ class Reports {
                 kv('Project', s.project),
                 kv('Matrix', s.matrix.label),
                 kv('Coordinates', s.lat != null && s.lon != null ? '${s.lat!.toStringAsFixed(5)}, ${s.lon!.toStringAsFixed(5)}' : ''),
+                if (s.lat != null && s.lon != null) kv('UTM', toUtm(s.lat!, s.lon!, zone: 29).toString()),
+                if (s.isControl) kv('Sample type', 'Control / background'),
               ]),
             ),
             pw.SizedBox(width: 16),
@@ -159,7 +162,10 @@ class Reports {
                   s.results[i].parameter,
                   resultText(s.results[i]),
                   s.results[i].unit,
-                  s.results[i].method,
+                  [
+                    s.results[i].method,
+                    if (s.results[i].replicates.length > 1) 'mean of n=${s.results[i].replicates.length}',
+                  ].where((x) => x.isNotEmpty).join(', '),
                   checks[i].limit?.text ?? '—',
                   complianceLabel(checks[i].status),
                 ]
@@ -247,8 +253,8 @@ class Reports {
 
   /// All results as a flat CSV for Excel.
   static String resultsCsv(AppState app, [List<Sample>? only]) {
-    final b = StringBuffer('sample_code,site,project,matrix,latitude,longitude,collected,status,parameter,value,below_lod,lod,unit,'
-        'method,analyst,result_date,dilution,limit,assessment,note\n');
+    final b = StringBuffer('sample_code,site,project,matrix,control,latitude,longitude,utm29n_x,utm29n_y,collected,status,parameter,value,below_lod,lod,unit,'
+        'replicates,method,analyst,result_date,dilution,limit,assessment,note\n');
     for (final s in only ?? app.samples) {
       final set = app.limitsFor(s);
       for (final r in s.results) {
@@ -258,8 +264,11 @@ class Reports {
           _csv(s.site),
           _csv(s.project),
           s.matrix.label,
+          s.isControl ? 'yes' : 'no',
           s.lat?.toStringAsFixed(6) ?? '',
           s.lon?.toStringAsFixed(6) ?? '',
+          s.lat != null && s.lon != null ? toUtm(s.lat!, s.lon!, zone: 29).easting.toStringAsFixed(1) : '',
+          s.lat != null && s.lon != null ? toUtm(s.lat!, s.lon!, zone: 29).northing.toStringAsFixed(1) : '',
           s.collectedAt.toIso8601String(),
           s.status.label,
           _csv(r.parameter),
@@ -267,6 +276,7 @@ class Reports {
           r.belowLod ? 'yes' : 'no',
           r.lod?.toString() ?? '',
           r.unit,
+          r.replicates.join(' '),
           _csv(r.method),
           _csv(r.analyst),
           r.date.toIso8601String(),
