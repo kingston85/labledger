@@ -96,7 +96,7 @@ void main() {
     });
 
     test('approval gate and turnaround', () {
-      final s = Sample(id: 'x', code: 'T-1', collectedAt: DateTime.now().subtract(const Duration(days: 4)), results: [Result(id: 'r', parameter: 'pH', value: 7, unit: '')]);
+      final s = Sample(id: 'x', code: 'T-1', collectedAt: DateTime.now().subtract(const Duration(days: 5)), receivedAt: DateTime.now().subtract(const Duration(days: 4)), results: [Result(id: 'r', parameter: 'pH', value: 7, unit: '')]);
       app.settings.requireApproval = true;
       expect(app.needsApproval(s), isTrue);
       expect(app.approveSample(s), 1);
