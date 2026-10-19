@@ -1,9 +1,17 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/guidelines.dart';
 import '../core/docx.dart';
 import '../core/report.dart';
 import '../core/word_reports.dart';
+import '../core/holding.dart';
+import '../core/lab_docs.dart';
+import '../core/photos.dart';
+import '../data/lab_models.dart';
+import '../data/lab_ops.dart';
 import '../core/stats.dart';
 import '../core/utm.dart';
 import '../data/app_state.dart';
@@ -15,6 +23,7 @@ import 'bulk_entry.dart';
 import 'home_screen.dart';
 import 'sample_form_screen.dart';
 import 'samples_screen.dart';
+import '../widgets/panels.dart';
 
 class SampleDetailScreen extends StatelessWidget {
   final Sample sample;
@@ -34,24 +43,23 @@ class SampleDetailScreen extends StatelessWidget {
         title: Text(s.code),
         actions: [
           IconButton(
-            tooltip: 'PDF report',
+            tooltip: app.needsApproval(s) ? 'PDF report (draft)' : 'Issue PDF report',
             icon: const Icon(Icons.picture_as_pdf_rounded),
-            onPressed: () async {
-              final bytes = await Reports.sampleReport(app, [s]);
-              if (context.mounted) {
-                await shareBytes(context, '${safeName(s.code)}_report.pdf', bytes, 'application/pdf', subject: 'Lab report ${s.code}');
-              }
-            },
+            onPressed: () => exportSampleReport(context, [s]),
           ),
           PopupMenuButton<String>(
             onSelected: (v) async {
               if (v == 'edit') {
-                Navigator.of(context).push(MaterialPageRoute(builder: (_) => SampleFormScreen(sample: s)));
+                openForm(context, SampleFormScreen(sample: s), width: 720);
               } else if (v == 'docx') {
                 final bytes = WordReports.samples(app, [s]);
                 if (context.mounted) await shareBytes(context, '${safeName(s.code)}_report.docx', bytes, docxMime, subject: 'Lab report ${s.code}');
               } else if (v == 'csv') {
                 shareText(context, '${safeName(s.code)}.csv', Reports.resultsCsv(app, [s]), 'text/csv');
+              } else if (v == 'xlsx') {
+                await shareBytes(context, '${safeName(s.code)}.xlsx', LabDocs.samplesWorkbook(app, [s]), xlsxMime);
+              } else if (v == 'summary') {
+                await showSummary(context, LabDocs.emailSummary(app, [s], heading: 'Results for sample ${s.code}'));
               } else if (v == 'delete') {
                 final ok = await showDialog<bool>(
                   context: context,
@@ -76,7 +84,9 @@ class SampleDetailScreen extends StatelessWidget {
             itemBuilder: (_) => const [
               PopupMenuItem(value: 'edit', child: Text('Edit details')),
               PopupMenuItem(value: 'docx', child: Text('Report · Word (.docx)')),
+              PopupMenuItem(value: 'xlsx', child: Text('Export Excel (.xlsx)')),
               PopupMenuItem(value: 'csv', child: Text('Export CSV')),
+              PopupMenuItem(value: 'summary', child: Text('E-mail summary')),
               PopupMenuItem(value: 'delete', child: Text('Delete sample')),
             ],
           ),
@@ -153,9 +163,30 @@ class SampleDetailScreen extends StatelessWidget {
                 if (s.dueDate != null) _kv(context, 'Due', '${shortDate(s.dueDate!)}${s.overdue ? '  (OVERDUE)' : ''}'),
                 if (s.reportedAt != null) _kv(context, 'Reported', '${dateTime(s.reportedAt!)}${s.turnaroundDays == null ? '' : ' · ${s.turnaroundDays!.toStringAsFixed(1)} d turnaround'}'),
                 if (s.notes.isNotEmpty) _kv(context, 'Remarks', s.notes),
+                if (app.trip(s.tripId) != null) _kv(context, 'Field trip', app.trip(s.tripId)!.title),
+                if (s.weather.isNotEmpty) _kv(context, 'Weather', s.weather),
+                if (s.fieldNotes.isNotEmpty) _kv(context, 'Field notes', s.fieldNotes),
               ],
             ),
           ),
+          if (holdingExceeded(s).isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: LBCard(
+                borderColor: c.fair.withOpacity(0.6),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Icon(Icons.timer_off_rounded, color: c.fair),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Holding time exceeded: ${holdingExceeded(s).map((h) => '${h.result.parameter} (max ${h.rule.holdText}, analysed after ${durationText(h.elapsed)})').join('; ')}.',
+                      style: LBText.body(c.ink, size: 13),
+                    ),
+                  ),
+                ]),
+              ),
+            ),
           SectionHeader(
             'Results (${s.results.length})',
             trailing: Row(
@@ -192,6 +223,7 @@ class SampleDetailScreen extends StatelessWidget {
                 padding: const EdgeInsets.only(bottom: 8),
                 child: _ResultRow(sample: s, result: s.results[i], check: checks[i]),
               ),
+          _Photos(sample: s),
           SectionHeader(
             'Chain of custody',
             trailing: TextButton.icon(
@@ -414,7 +446,7 @@ class _CustodyRow extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 Future<void> showResultForm(BuildContext context, Sample sample, {Result? existing}) {
-  return showModalBottomSheet<void>(
+  return showSheet<void>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
@@ -542,6 +574,11 @@ class _ResultFormState extends State<_ResultForm> {
                 _param.text = p;
                 final u = commonParameters[p];
                 if (u != null) _unit = (widget.sample.matrix.isSolid && u == 'mg/L') ? 'mg/kg' : u;
+                final lm = AppScope.read(context).methodFor(p);
+                if (lm != null) {
+                  if (_method.text.trim().isEmpty) _method.text = '${lm.code} (${lm.technique.isEmpty ? lm.title : lm.technique})';
+                  if (_lod.text.trim().isEmpty && (lm.loq ?? lm.mdl) != null) _lod.text = '${lm.loq ?? lm.mdl}';
+                }
                 if (_method.text.trim().isEmpty) _method.text = defaultMethods[p] ?? '';
               }),
               fieldViewBuilder: (context, ctrl, focus, onSubmit) {
@@ -611,6 +648,17 @@ class _ResultFormState extends State<_ResultForm> {
                 Expanded(child: TextField(controller: _analyst, decoration: const InputDecoration(labelText: 'Analyst', isDense: true))),
               ],
             ),
+            if (_param.text.trim().isNotEmpty && AppScope.read(context).methodFor(_param.text) != null)
+              () {
+                final lm = AppScope.read(context).methodFor(_param.text)!;
+                return Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    'Method library: ${lm.code} v${lm.version} · ${lm.status.label}${lm.mdl == null ? '' : ' · MDL ${fmtValue(lm.mdl!)}'}${lm.loq == null ? '' : ' · LOQ ${fmtValue(lm.loq!)}'}${lm.uncertaintyPct == null ? '' : ' · U ±${lm.uncertaintyPct!.toStringAsFixed(0)}%'}',
+                    style: LBText.body(c.accent, size: 12),
+                  ),
+                );
+              }(),
             const SizedBox(height: 12),
             TextField(controller: _note, decoration: const InputDecoration(labelText: 'Note', isDense: true)),
             const SizedBox(height: 12),
@@ -649,5 +697,149 @@ class _ResultFormState extends State<_ResultForm> {
         ),
       ),
     );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Report export, e-mail summary and photographs
+// ---------------------------------------------------------------------------
+
+const xlsxMime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+/// Exports a PDF test report. When every result is approved the report is
+/// registered with a number and a QR verification code; otherwise a draft
+/// preview is produced.
+Future<void> exportSampleReport(BuildContext context, List<Sample> list) async {
+  final app = AppScope.read(context);
+  if (list.isEmpty) return;
+  final draft = list.any(app.needsApproval);
+  IssuedReport? issued;
+  if (!draft) issued = app.issueReport(list);
+  final bytes = await Reports.sampleReport(app, list, issued: issued);
+  if (!context.mounted) return;
+  final base = list.length == 1 ? safeName(list.first.code) : '${list.length}_samples';
+  await shareBytes(context, '${issued?.number ?? 'DRAFT'}_${base}.pdf', bytes, 'application/pdf', subject: 'Lab report ${issued?.number ?? ''}'.trim());
+  if (context.mounted && issued != null) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Report ${issued.number} issued · verification code ${issued.hash.substring(0, 4)}…')));
+  }
+}
+
+/// Shows an e-mail-ready text summary with copy and share buttons.
+Future<void> showSummary(BuildContext context, String text) {
+  return showDialog<void>(
+    context: context,
+    builder: (context) {
+      final c = context.lb;
+      return AlertDialog(
+        title: const Text('E-mail summary'),
+        content: SizedBox(
+          width: 560,
+          child: SingleChildScrollView(child: SelectableText(text, style: LBText.reading(12.5, c.ink, weight: FontWeight.w400).copyWith(height: 1.45))),
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () => shareText(context, 'results_summary.txt', text, 'text/plain'),
+            icon: const Icon(Icons.share_rounded, size: 18),
+            label: const Text('Share'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: text));
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Summary copied — paste it into your e-mail.')));
+            },
+            icon: const Icon(Icons.copy_rounded, size: 18),
+            label: const Text('Copy'),
+          ),
+        ],
+      );
+    },
+  );
+}
+
+class _Photos extends StatelessWidget {
+  final Sample sample;
+  const _Photos({required this.sample});
+
+  @override
+  Widget build(BuildContext context) {
+    final app = AppScope.of(context);
+    final c = context.lb;
+    final s = sample;
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      SectionHeader(
+        'Photographs (${s.photos.length})',
+        trailing: !app.canEdit
+            ? null
+            : TextButton.icon(
+                onPressed: () async {
+                  try {
+                    final added = await pickPhotos(s.code);
+                    if (added.isNotEmpty) {
+                      app.update(() {
+                        s.photos.addAll(added);
+                        app.log('photo', 'Sample', s.code, '${added.length} added');
+                      });
+                    }
+                  } catch (e) {
+                    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not add photo: $e')));
+                  }
+                },
+                icon: const Icon(Icons.add_a_photo_outlined, size: 18),
+                label: const Text('Add'),
+              ),
+      ),
+      if (s.photos.isEmpty)
+        LBCard(child: Text('Site and sample photos appear here and on the PDF report.', style: LBText.body(c.inkDim, size: 13)))
+      else
+        SizedBox(
+          height: 120,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: s.photos.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (context, i) {
+              final path = s.photos[i];
+              return GestureDetector(
+                onTap: () => showDialog<void>(
+                  context: context,
+                  builder: (context) => Dialog(
+                    clipBehavior: Clip.antiAlias,
+                    child: Stack(children: [
+                      InteractiveViewer(child: Image.file(File(path), fit: BoxFit.contain, errorBuilder: (_, __, ___) => const SizedBox(width: 300, height: 200, child: Center(child: Text('Photo not found'))))),
+                      Positioned(
+                        right: 8,
+                        top: 8,
+                        child: Row(children: [
+                          if (app.canEdit)
+                            IconButton.filledTonal(
+                              tooltip: 'Remove photo',
+                              onPressed: () async {
+                                app.update(() => s.photos.remove(path));
+                                await deletePhoto(path);
+                                if (context.mounted) Navigator.pop(context);
+                              },
+                              icon: const Icon(Icons.delete_outline_rounded),
+                            ),
+                          const SizedBox(width: 6),
+                          IconButton.filledTonal(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded)),
+                        ]),
+                      ),
+                    ]),
+                  ),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: Container(
+                    width: 160,
+                    color: c.surface2,
+                    child: Image.file(File(path), fit: BoxFit.cover, cacheWidth: 400, errorBuilder: (_, __, ___) => Icon(Icons.broken_image_outlined, color: c.inkDim)),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+    ]);
   }
 }

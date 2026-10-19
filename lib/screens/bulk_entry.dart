@@ -5,11 +5,12 @@ import '../core/report.dart';
 import '../data/app_state.dart';
 import '../data/models.dart';
 import '../theme/app_theme.dart';
+import '../widgets/panels.dart';
 
 /// Enter a whole parameter panel (field readings, metals suite…) for a sample
 /// in one sheet. Each box takes a value, "<LOD", or replicate readings.
 Future<void> showBulkEntry(BuildContext context, Sample sample) {
-  return Navigator.of(context).push(MaterialPageRoute(builder: (_) => _BulkEntryScreen(sample: sample)));
+  return openPage(context, _BulkEntryScreen(sample: sample));
 }
 
 class _BulkEntryScreen extends StatefulWidget {

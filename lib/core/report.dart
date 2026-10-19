@@ -5,8 +5,14 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import '../data/app_state.dart';
+import '../data/lab_models.dart';
+import '../data/lab_ops.dart';
 import '../data/models.dart';
 import 'guidelines.dart';
+import 'holding.dart';
+import 'lab_docs.dart';
+import 'photos.dart';
+import 'quality.dart';
 import 'utm.dart';
 
 String fmtValue(double v) {
@@ -53,14 +59,27 @@ class Reports {
   static const _bad = PdfColor.fromInt(0xFFC62828);
   static const _good = PdfColor.fromInt(0xFF0F8A55);
 
-  static Future<Uint8List> sampleReport(AppState app, List<Sample> samples) async {
+  /// Test report for one or more samples. With [issued], the report carries
+  /// its number and a QR verification code; without it, it is a preview.
+  static Future<Uint8List> sampleReport(AppState app, List<Sample> samples, {IssuedReport? issued}) async {
     final regular = pw.Font.ttf(await rootBundle.load('assets/fonts/Inter-Regular.ttf'));
     final bold = pw.Font.ttf(await rootBundle.load('assets/fonts/Inter-Bold.ttf'));
     final mono = pw.Font.ttf(await rootBundle.load('assets/fonts/JetBrainsMono-Regular.ttf'));
     final st = app.settings;
     final doc = pw.Document(title: 'Laboratory test report', author: st.labName, creator: 'LabLedger');
     final theme = pw.ThemeData.withFont(base: regular, bold: bold);
-    final now = DateTime.now();
+    final now = issued?.issued ?? DateTime.now();
+    final logo = pdfLogo(app, height: 34);
+    final photos = <String, List<Uint8List>>{};
+    for (final s in samples) {
+      for (final p in s.photos.take(6)) {
+        final b = await readPhoto(p);
+        if (b != null) (photos[s.id] ??= []).add(b);
+      }
+    }
+    final qrText = issued == null
+        ? null
+        : 'LabLedger report ${issued.number}\n${st.labName}\nIssued ${shortDate(issued.issued)}\nSamples: ${issued.sampleCodes.join(', ')}\nVerification code: ${groupCode(issued.hash)}';
 
     for (final s in samples) {
       final set = app.limitsFor(s);
@@ -85,16 +104,18 @@ class Reports {
           padding: const pw.EdgeInsets.only(bottom: 8),
           decoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(color: _accent, width: 2))),
           child: pw.Row(children: [
+            if (logo != null) ...[logo, pw.SizedBox(width: 10)],
             pw.Expanded(
               child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
                 pw.Text(st.labName, style: pw.TextStyle(font: bold, fontSize: 11, color: _ink)),
+                if (st.accreditation.isNotEmpty) pw.Text(st.accreditation, style: const pw.TextStyle(fontSize: 7.5, color: _dim)),
                 pw.Text(app.needsApproval(s) ? 'Laboratory test report · DRAFT (results not yet approved)' : 'Laboratory test report',
                     style: pw.TextStyle(fontSize: 9, color: app.needsApproval(s) ? _bad : _dim)),
               ]),
             ),
             pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.end, children: [
               pw.Text(s.code, style: pw.TextStyle(font: bold, fontSize: 12, color: _accent)),
-              pw.Text('Issued ${shortDate(now)}', style: const pw.TextStyle(fontSize: 8, color: _dim)),
+              pw.Text(issued == null ? 'Preview ${shortDate(now)}' : 'Report ${issued.number} · issued ${shortDate(now)}', style: const pw.TextStyle(fontSize: 8, color: _dim)),
             ]),
           ]),
         ),
@@ -133,6 +154,9 @@ class Reports {
                 kv('Received', s.receivedAt == null ? '' : dateTime(s.receivedAt!)),
                 kv('Collected by', s.collector),
                 kv('Preservation', s.preservation),
+                if (app.client(s.clientId) != null) kv('Client', app.client(s.clientId)!.name),
+                if (app.request(s.requestId) != null) kv('Request', app.request(s.requestId)!.number),
+                if (s.weather.isNotEmpty) kv('Weather', s.weather),
               ]),
             ),
           ]),
@@ -156,12 +180,18 @@ class Reports {
           pw.Text('RESULTS', style: pw.TextStyle(font: bold, fontSize: 8, letterSpacing: 1.2, color: _dim)),
           pw.SizedBox(height: 4),
           pw.TableHelper.fromTextArray(
-            headers: ['Parameter', 'Result', 'Unit', 'Method', 'Limit', 'Assessment'],
+            headers: ['Parameter', 'Result', 'U (k=2)', 'Unit', 'Method', 'Limit', 'Assessment'],
             data: [
               for (var i = 0; i < s.results.length; i++)
                 [
                   s.results[i].parameter,
                   resultText(s.results[i]),
+                  () {
+                    final m = app.methodFor(s.results[i].parameter);
+                    final v = s.results[i].value;
+                    if (m?.uncertaintyPct == null || v == null || s.results[i].belowLod) return '';
+                    return '± ${fmtValue(v.abs() * m!.uncertaintyPct! / 100)}';
+                  }(),
                   s.results[i].unit,
                   [
                     s.results[i].method,
@@ -184,6 +214,17 @@ class Reports {
                   : const pw.BoxDecoration();
             },
           ),
+          if (holdingExceeded(s).isNotEmpty) ...[
+            pw.SizedBox(height: 6),
+            pw.Text(
+              'Holding time exceeded before analysis: ${holdingExceeded(s).map((h) => '${h.result.parameter} (max ${h.rule.holdText}, analysed after ${durationText(h.elapsed)})').join('; ')}. Results should be interpreted with caution.',
+              style: pw.TextStyle(fontSize: 8, color: _bad, font: bold),
+            ),
+          ],
+          if (s.fieldNotes.isNotEmpty) ...[
+            pw.SizedBox(height: 6),
+            pw.Text('Field observations: ${s.fieldNotes}', style: const pw.TextStyle(fontSize: 8.5, color: _ink)),
+          ],
           if (s.results.any((r) => r.note.isNotEmpty)) ...[
             pw.SizedBox(height: 6),
             for (final r in s.results.where((r) => r.note.isNotEmpty))
@@ -227,6 +268,30 @@ class Reports {
             pw.SizedBox(height: 10),
             pw.Text('Remarks: ${s.notes}', style: const pw.TextStyle(fontSize: 8.5, color: _ink)),
           ],
+          if ((photos[s.id] ?? const []).isNotEmpty) ...[
+            pw.SizedBox(height: 12),
+            pw.Text('PHOTOGRAPHS', style: pw.TextStyle(font: bold, fontSize: 8, letterSpacing: 1.2, color: _dim)),
+            pw.SizedBox(height: 4),
+            pw.Wrap(spacing: 6, runSpacing: 6, children: [
+              for (final b in photos[s.id]!)
+                pw.Container(
+                  width: 160,
+                  height: 110,
+                  decoration: pw.BoxDecoration(border: pw.Border.all(color: _line)),
+                  child: () {
+                    try {
+                      return pw.Image(pw.MemoryImage(b), fit: pw.BoxFit.cover);
+                    } catch (_) {
+                      return pw.SizedBox();
+                    }
+                  }(),
+                ),
+            ]),
+          ],
+          if (st.reportNote.isNotEmpty) ...[
+            pw.SizedBox(height: 10),
+            pw.Text(st.reportNote, style: const pw.TextStyle(fontSize: 8, color: _dim)),
+          ],
           pw.SizedBox(height: 26),
           pw.Row(children: [
             _sig('Analysed by', st.analyst, bold),
@@ -240,6 +305,28 @@ class Reports {
             pw.SizedBox(width: 24),
             _sig('Date', '', bold),
           ]),
+          if (qrText != null && st.qrOnReports) ...[
+            pw.SizedBox(height: 16),
+            pw.Container(
+              padding: const pw.EdgeInsets.all(8),
+              decoration: pw.BoxDecoration(border: pw.Border.all(color: _line), borderRadius: const pw.BorderRadius.all(pw.Radius.circular(5))),
+              child: pw.Row(children: [
+                pw.BarcodeWidget(barcode: pw.Barcode.qrCode(), data: qrText, width: 64, height: 64, drawText: false),
+                pw.SizedBox(width: 12),
+                pw.Expanded(
+                  child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+                    pw.Text('Report verification', style: pw.TextStyle(font: bold, fontSize: 9)),
+                    pw.Text('Report no. ${issued!.number}   ·   Code ${groupCode(issued.hash)}', style: pw.TextStyle(font: mono, fontSize: 9, color: _accent)),
+                    pw.SizedBox(height: 2),
+                    pw.Text(
+                        'Scan the code, or ask ${st.labName}${st.labPhone.isEmpty ? '' : ' (${st.labPhone})'} to confirm this report number and code in LabLedger. '
+                        'Any change to the results after issue changes the code.',
+                        style: const pw.TextStyle(fontSize: 7.5, color: _dim)),
+                  ]),
+                ),
+              ]),
+            ),
+          ],
         ],
       ));
     }

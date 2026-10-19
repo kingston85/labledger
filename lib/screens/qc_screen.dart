@@ -11,6 +11,7 @@ import '../theme/app_theme.dart';
 import '../widgets/components.dart';
 import '../widgets/inputs.dart';
 import '../widgets/plot.dart';
+import '../widgets/panels.dart';
 
 class QcScreen extends StatelessWidget {
   const QcScreen({super.key});
@@ -90,7 +91,7 @@ class QcScreen extends StatelessWidget {
         targetSd: double.tryParse(sd.text.trim()),
       );
       app.update(() => app.charts.insert(0, ch));
-      if (context.mounted) Navigator.of(context).push(MaterialPageRoute(builder: (_) => ControlChartScreen(chart: ch)));
+      if (context.mounted) openPage(context, ControlChartScreen(chart: ch));
     }
   }
 }
@@ -159,7 +160,7 @@ class _ChecksTab extends StatelessWidget {
 }
 
 Future<void> showQcForm(BuildContext context, {QcCheck? existing}) {
-  return showModalBottomSheet<void>(
+  return showSheet<void>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
@@ -326,7 +327,7 @@ class _ChartsTab extends StatelessWidget {
         final flags = lim == null ? <List<WestgardRule>>[] : westgard([for (final p in ch.points) p.value], lim.$1, lim.$2);
         final rejects = flags.isEmpty ? false : flags.last.any((r) => r.rejects);
         return LBCard(
-          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ControlChartScreen(chart: ch))),
+          onTap: () => openPage(context, ControlChartScreen(chart: ch)),
           child: Row(
             children: [
               Icon(Icons.stacked_line_chart_rounded, color: rejects ? c.poor : c.accent),

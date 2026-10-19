@@ -14,6 +14,7 @@ import '../theme/app_theme.dart';
 import '../widgets/components.dart';
 import '../widgets/share.dart';
 import 'sample_detail_screen.dart';
+import '../widgets/panels.dart';
 
 const _ua = 'lr.labledger.labledger';
 
@@ -226,7 +227,7 @@ class _MapScreenState extends State<MapScreen> {
                     style: LBText.body(c.inkDim, size: 11.5),
                   ),
                   trailing: const Icon(Icons.chevron_right_rounded),
-                  onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SampleDetailScreen(sample: s))),
+                  onTap: () => openPage(context, SampleDetailScreen(sample: s)),
                 ),
             ]),
           ),

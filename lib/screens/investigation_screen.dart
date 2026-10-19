@@ -20,6 +20,7 @@ import '../widgets/share.dart';
 import 'import_screen.dart';
 import 'indices_view.dart';
 import 'sample_detail_screen.dart';
+import '../widgets/panels.dart';
 
 /// All projects / field investigations.
 class InvestigationsScreen extends StatelessWidget {
@@ -75,7 +76,7 @@ class _ProjectTile extends StatelessWidget {
     final ctrl = samples.where((s) => s.isControl).length;
     final dates = samples.map((s) => s.collectedAt).toList()..sort();
     return LBCard(
-      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => InvestigationScreen(project: name))),
+      onTap: () => openPage(context, InvestigationScreen(project: name)),
       child: Row(
         children: [
           Container(
@@ -136,7 +137,7 @@ class _InvestigationScreenState extends State<InvestigationScreen> {
           IconButton(
             tooltip: 'Import results',
             icon: const Icon(Icons.upload_file_rounded),
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ImportScreen(project: widget.project))),
+            onPressed: () => openPage(context, ImportScreen(project: widget.project)),
           ),
           PopupMenuButton<String>(
             tooltip: 'Export',
@@ -287,7 +288,7 @@ class _InvestigationScreenState extends State<InvestigationScreen> {
             padding: const EdgeInsets.only(bottom: 6),
             child: LBCard(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SampleDetailScreen(sample: s))),
+              onTap: () => openPage(context, SampleDetailScreen(sample: s)),
               child: Row(
                 children: [
                   Expanded(
@@ -365,7 +366,7 @@ class _InvestigationScreenState extends State<InvestigationScreen> {
                   cell('Parameter', w: pw, bold: true, bg: c.surface2, align: Alignment.centerLeft),
                   for (final s in g.samples)
                     GestureDetector(
-                      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SampleDetailScreen(sample: s))),
+                      onTap: () => openPage(context, SampleDetailScreen(sample: s)),
                       child: cell(s.code, bold: true, bg: s.isControl ? c.good.withOpacity(0.18) : c.surface2, fg: c.accent),
                     ),
                   if (!g.solid) cell('Standard', bold: true, bg: c.surface2),

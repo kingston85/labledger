@@ -69,6 +69,15 @@ class LocationService extends ChangeNotifier {
     }
   }
 
+  /// Starts GPS if needed and waits up to [seconds] for a fix.
+  Future<LatLng?> current({int seconds = 10}) async {
+    if (status != GpsStatus.live) await start();
+    for (var i = 0; i < seconds * 4 && !hasFix; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    return latLng;
+  }
+
   Future<void> openSettings() async {
     if (status == GpsStatus.serviceOff) {
       await Geolocator.openLocationSettings();

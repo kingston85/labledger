@@ -1,5 +1,6 @@
 import 'dart:ui' show FontFeature;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 /// Colour tokens for LabLedger. Two palettes: Lab (dark, default) and
@@ -37,10 +38,10 @@ class LBColors extends ThemeExtension<LBColors> {
   });
 
   static const lab = LBColors(
-    bg: Color(0xFF0E1116),
-    surface: Color(0xFF181D25),
-    surface2: Color(0xFF222935),
-    line: Color(0xFF2C3442),
+    bg: Color(0xFF0C1118),
+    surface: Color(0xFF151C27),
+    surface2: Color(0xFF1E2735),
+    line: Color(0xFF283245),
     ink: Color(0xFFE8ECF2),
     inkDim: Color(0xFF8C96A8),
     accent: Color(0xFF7AA2FF),
@@ -53,10 +54,10 @@ class LBColors extends ThemeExtension<LBColors> {
   );
 
   static const daylight = LBColors(
-    bg: Color(0xFFFFFFFF),
-    surface: Color(0xFFF2F4F7),
-    surface2: Color(0xFFE6E9EF),
-    line: Color(0xFFC9CFD9),
+    bg: Color(0xFFF4F6FA),
+    surface: Color(0xFFFFFFFF),
+    surface2: Color(0xFFEDF1F6),
+    line: Color(0xFFD9DFE8),
     ink: Color(0xFF0E1116),
     inkDim: Color(0xFF4A5468),
     accent: Color(0xFF2F5BD3),
@@ -168,7 +169,12 @@ class LBText {
 class AppTheme {
   AppTheme._();
 
+  static bool get _desktop =>
+      defaultTargetPlatform == TargetPlatform.windows || defaultTargetPlatform == TargetPlatform.linux || defaultTargetPlatform == TargetPlatform.macOS;
+
   static ThemeData build(LBColors c) {
+    final desk = _desktop;
+    final btn = desk ? const Size(40, 44) : const Size(56, 52);
     final brightness = c.isSunlight ? Brightness.light : Brightness.dark;
     final scheme = ColorScheme.fromSeed(
       seedColor: c.accent,
@@ -186,6 +192,7 @@ class AppTheme {
       colorScheme: scheme,
       fontFamily: LBText.sans,
       scaffoldBackgroundColor: c.bg,
+      visualDensity: desk ? const VisualDensity(horizontal: -1, vertical: -1) : VisualDensity.standard,
       extensions: [c],
     );
     return base.copyWith(
@@ -212,7 +219,7 @@ class AppTheme {
         fillColor: c.surface2,
         labelStyle: TextStyle(color: c.inkDim),
         hintStyle: TextStyle(color: c.inkDim),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        contentPadding: desk ? const EdgeInsets.symmetric(horizontal: 14, vertical: 13) : const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(color: c.line),
@@ -230,7 +237,7 @@ class AppTheme {
         style: FilledButton.styleFrom(
           backgroundColor: c.accent,
           foregroundColor: c.onAccent,
-          minimumSize: const Size(56, 56),
+          minimumSize: btn,
           textStyle: const TextStyle(
               fontFamily: LBText.sans, fontWeight: FontWeight.w700, fontSize: 15),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -239,7 +246,7 @@ class AppTheme {
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: c.ink,
-          minimumSize: const Size(56, 56),
+          minimumSize: btn,
           side: BorderSide(color: c.line),
           textStyle: const TextStyle(
               fontFamily: LBText.sans, fontWeight: FontWeight.w600, fontSize: 15),
@@ -247,7 +254,43 @@ class AppTheme {
         ),
       ),
       textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(foregroundColor: c.accent),
+        style: TextButton.styleFrom(foregroundColor: c.accent, textStyle: const TextStyle(fontFamily: LBText.sans, fontWeight: FontWeight.w600)),
+      ),
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        backgroundColor: c.accent,
+        foregroundColor: c.onAccent,
+        elevation: 2,
+        extendedTextStyle: const TextStyle(fontFamily: LBText.sans, fontWeight: FontWeight.w700),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      ),
+      chipTheme: ChipThemeData(
+        backgroundColor: c.surface,
+        selectedColor: c.accent.withOpacity(0.18),
+        side: BorderSide(color: c.line),
+        labelStyle: TextStyle(fontFamily: LBText.sans, fontSize: 12.5, color: c.ink, fontWeight: FontWeight.w600),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+      listTileTheme: ListTileThemeData(iconColor: c.inkDim, textColor: c.ink),
+      tooltipTheme: TooltipThemeData(
+        decoration: BoxDecoration(color: c.ink.withOpacity(0.92), borderRadius: BorderRadius.circular(8)),
+        textStyle: TextStyle(fontFamily: LBText.sans, fontSize: 12, color: c.bg),
+        waitDuration: const Duration(milliseconds: 400),
+      ),
+      scrollbarTheme: ScrollbarThemeData(
+        thumbColor: WidgetStateProperty.all(c.inkDim.withOpacity(0.35)),
+        radius: const Radius.circular(8),
+        thickness: WidgetStateProperty.all(desk ? 8.0 : 4.0),
+      ),
+      popupMenuTheme: PopupMenuThemeData(
+        color: c.surface,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: c.line)),
+        textStyle: TextStyle(fontFamily: LBText.sans, fontSize: 13.5, color: c.ink),
+      ),
+      datePickerTheme: DatePickerThemeData(backgroundColor: c.surface, surfaceTintColor: Colors.transparent),
+      navigationBarTheme: NavigationBarThemeData(
+        height: 66,
+        labelTextStyle: WidgetStateProperty.all(TextStyle(fontFamily: LBText.sans, fontSize: 11.5, fontWeight: FontWeight.w600, color: c.ink)),
       ),
       switchTheme: SwitchThemeData(
         thumbColor: WidgetStateProperty.resolveWith(

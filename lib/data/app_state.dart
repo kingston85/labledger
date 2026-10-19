@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 
 import '../core/guidelines.dart';
 import '../core/location_service.dart';
+import 'lab_models.dart';
+import 'lab_ops.dart';
 import 'models.dart';
 import 'storage.dart';
 
@@ -32,6 +34,10 @@ class LabSettings {
   String bankDetails = '';
   bool requireApproval = true;
   int autoLockMinutes = 10;
+  String logoB64 = ''; // PNG/JPEG shown on reports
+  bool qrOnReports = true;
+  String accreditation = ''; // e.g. "ISO/IEC 17025:2017 (in preparation)"
+  String reportNote = '';
 
   Map<String, dynamic> toJson() => {
         'labName': labName,
@@ -57,6 +63,10 @@ class LabSettings {
         'bankDetails': bankDetails,
         'requireApproval': requireApproval,
         'autoLockMinutes': autoLockMinutes,
+        'logoB64': logoB64,
+        'qrOnReports': qrOnReports,
+        'accreditation': accreditation,
+        'reportNote': reportNote,
       };
 
   void load(Map<String, dynamic> j) {
@@ -83,6 +93,10 @@ class LabSettings {
     bankDetails = j['bankDetails'] as String? ?? bankDetails;
     requireApproval = j['requireApproval'] as bool? ?? requireApproval;
     autoLockMinutes = (j['autoLockMinutes'] as num?)?.toInt() ?? autoLockMinutes;
+    logoB64 = j['logoB64'] as String? ?? logoB64;
+    qrOnReports = j['qrOnReports'] as bool? ?? qrOnReports;
+    accreditation = j['accreditation'] as String? ?? accreditation;
+    reportNote = j['reportNote'] as String? ?? reportNote;
   }
 }
 
@@ -102,6 +116,15 @@ class AppState extends ChangeNotifier {
   final List<PriceItem> prices = [];
   final List<LabRequest> requests = [];
   final List<Invoice> invoices = [];
+  final List<FieldTrip> trips = [];
+  final List<StockMove> stockMoves = [];
+  final List<PurchaseRequest> purchases = [];
+  final List<MaintenanceLog> maintenance = [];
+  final List<LabMethod> methods = [];
+  final List<PtRound> ptRounds = [];
+  final List<NonConformance> ncs = [];
+  final List<IssuedReport> issuedReports = [];
+  final Set<String> demoIds = {};
   AppUser? currentUser;
   DateTime lastActivity = DateTime.now();
   bool hasDemo = false;
@@ -163,6 +186,15 @@ class AppState extends ChangeNotifier {
         'prices': [for (final p in prices) p.toJson()],
         'requests': [for (final r in requests) r.toJson()],
         'invoices': [for (final i in invoices) i.toJson()],
+        'trips': [for (final t in trips) t.toJson()],
+        'stockMoves': [for (final m in stockMoves) m.toJson()],
+        'purchases': [for (final p in purchases) p.toJson()],
+        'maintenance': [for (final m in maintenance) m.toJson()],
+        'methods': [for (final m in methods) m.toJson()],
+        'ptRounds': [for (final r in ptRounds) r.toJson()],
+        'ncs': [for (final n in ncs) n.toJson()],
+        'issuedReports': [for (final r in issuedReports) r.toJson()],
+        'demoIds': demoIds.toList(),
       };
 
   void _fromJson(Map<String, dynamic> j) {
@@ -208,6 +240,33 @@ class AppState extends ChangeNotifier {
     invoices
       ..clear()
       ..addAll(list('invoices').map(Invoice.fromJson));
+    trips
+      ..clear()
+      ..addAll(list('trips').map(FieldTrip.fromJson));
+    stockMoves
+      ..clear()
+      ..addAll(list('stockMoves').map(StockMove.fromJson));
+    purchases
+      ..clear()
+      ..addAll(list('purchases').map(PurchaseRequest.fromJson));
+    maintenance
+      ..clear()
+      ..addAll(list('maintenance').map(MaintenanceLog.fromJson));
+    methods
+      ..clear()
+      ..addAll(list('methods').map(LabMethod.fromJson));
+    ptRounds
+      ..clear()
+      ..addAll(list('ptRounds').map(PtRound.fromJson));
+    ncs
+      ..clear()
+      ..addAll(list('ncs').map(NonConformance.fromJson));
+    issuedReports
+      ..clear()
+      ..addAll(list('issuedReports').map(IssuedReport.fromJson));
+    demoIds
+      ..clear()
+      ..addAll([for (final x in (j['demoIds'] as List? ?? const [])) x as String]);
   }
 
   /// Replaces everything with the contents of a backup file.
@@ -493,6 +552,14 @@ class AppState extends ChangeNotifier {
     requests.removeWhere((r) => r.notes == 'Demo item');
     invoices.removeWhere((i) => i.notes == 'Demo item');
     reagents.removeWhere((r) => r.notes == 'Demo item');
+    trips.removeWhere((t) => demoIds.contains(t.id));
+    purchases.removeWhere((p) => demoIds.contains(p.id));
+    methods.removeWhere((m) => demoIds.contains(m.id));
+    ptRounds.removeWhere((r) => demoIds.contains(r.id));
+    ncs.removeWhere((n) => demoIds.contains(n.id));
+    maintenance.removeWhere((m) => demoIds.contains(m.id));
+    stockMoves.removeWhere((m) => demoIds.contains(m.id));
+    demoIds.clear();
     hasDemo = false;
     notifyListeners();
   }
@@ -564,6 +631,7 @@ class AppState extends ChangeNotifier {
       targetSd: 0.04,
       points: pts,
     ));
+    this.loadLabDemo(now); // ignore: unnecessary_this
   }
 
   // Demo investigation built from the published results of the EPA Liberia

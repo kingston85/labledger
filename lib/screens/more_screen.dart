@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import '../core/guidelines.dart';
@@ -8,8 +10,14 @@ import '../theme/app_theme.dart';
 import '../widgets/components.dart';
 import '../widgets/share.dart';
 import '../core/docx.dart';
+import '../core/lab_docs.dart';
+import '../core/photos.dart';
 import '../core/word_reports.dart';
 import 'admin_screen.dart';
+import 'calendar_screen.dart';
+import 'field_screen.dart';
+import 'quality_screen.dart';
+import 'sample_detail_screen.dart';
 import 'business_screen.dart';
 import 'calibration_screen.dart';
 import 'import_screen.dart';
@@ -18,6 +26,7 @@ import 'qc_screen.dart';
 import 'investigation_screen.dart';
 import 'register_screen.dart';
 import 'stats_screen.dart';
+import '../widgets/panels.dart';
 
 class MoreScreen extends StatelessWidget {
   const MoreScreen({super.key});
@@ -44,32 +53,39 @@ class MoreScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
         children: [
+          const SectionHeader('Modules'),
+          tile(Icons.route_rounded, 'Field trips', 'Plan sampling trips, checklists, field sheets, holding-time guide',
+              () => openPage(context, const FieldScreen())),
+          tile(Icons.calendar_month_rounded, 'Lab calendar', 'Due results, trips, calibrations, expiries, invoices, actions',
+              () => openPage(context, const CalendarScreen())),
+          tile(Icons.verified_user_rounded, 'Quality system', 'Methods & SOPs, proficiency tests, non-conformances (CAPA)',
+              () => openPage(context, const QualityScreen())),
           tile(Icons.business_center_rounded, 'Business', 'Requests & quotations, invoices, payments, clients, price list',
-              () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const BusinessScreen()))),
+              () => openPage(context, const BusinessScreen())),
           tile(Icons.map_rounded, 'Map & GIS', 'Sampling points on a map, KML / GeoJSON export',
-              () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MapScreen()))),
+              () => openPage(context, const MapScreen())),
           tile(Icons.admin_panel_settings_rounded, 'Users & audit trail', app.usersEnabled ? 'Signed in as ${app.userName} (${app.role.label})' : 'Add users, PIN sign-in, roles, approvals',
-              () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AdminScreen()))),
+              () => openPage(context, const AdminScreen())),
           tile(Icons.science_rounded, 'Calibration & QC', 'Calibration curves, QC checks and control charts', () {
-            showModalBottomSheet(
+            showSheet(
               context: context,
               showDragHandle: true,
-              builder: (_) => SafeArea(
+              builder: (sheet) => SafeArea(
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
                   ListTile(
                     leading: const Icon(Icons.show_chart_rounded),
                     title: const Text('Calibration'),
                     onTap: () {
-                      Navigator.pop(context);
-                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CalibrationScreen()));
+                      Navigator.pop(sheet);
+                      openPage(context, const CalibrationScreen());
                     },
                   ),
                   ListTile(
                     leading: const Icon(Icons.verified_rounded),
                     title: const Text('Quality control'),
                     onTap: () {
-                      Navigator.pop(context);
-                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const QcScreen()));
+                      Navigator.pop(sheet);
+                      openPage(context, const QcScreen());
                     },
                   ),
                   const SizedBox(height: 10),
@@ -78,18 +94,25 @@ class MoreScreen extends StatelessWidget {
             );
           }),
           tile(Icons.travel_explore_rounded, 'Investigations', 'Results matrix, standards, control comparison, findings, report',
-              () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const InvestigationsScreen()))),
-          tile(Icons.precision_manufacturing_rounded, 'Lab register', 'Instrument calibration & service, reagent expiry & stock',
-              () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const RegisterScreen()))),
+              () => openPage(context, const InvestigationsScreen())),
+          tile(Icons.inventory_2_rounded, 'Inventory & equipment', 'Instruments & maintenance log, stock, purchase requests',
+              () => openPage(context, const RegisterScreen())),
           tile(Icons.upload_file_rounded, 'Import results', 'Paste a table or open a CSV from an instrument or report',
-              () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ImportScreen()))),
+              () => openPage(context, const ImportScreen())),
           tile(Icons.functions_rounded, 'Statistics', 'Descriptives, t-tests, ANOVA, Grubbs outlier test',
-              () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const StatsScreen()))),
+              () => openPage(context, const StatsScreen())),
           tile(Icons.rule_folder_outlined, 'Limit sets', 'Liberian Class I, WHO drinking water and your own',
-              () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const LimitSetsScreen()))),
+              () => openPage(context, const LimitSetsScreen())),
           tile(Icons.settings_rounded, 'Settings', 'Lab name, analyst, sample IDs, QC acceptance limits',
-              () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()))),
+              () => openForm(context, const SettingsScreen(), width: 720)),
+          tile(Icons.qr_code_2_rounded, 'Verify a report', 'Check a report number and verification code',
+              () => openPage(context, const QualityScreen(tab: QualityTab.verify))),
           const SectionHeader('Export'),
+          tile(Icons.grid_on_rounded, 'Everything (Excel workbook)', 'Samples, results, clients, invoices, inventory, methods, PT, NCs, audit', () async {
+            await shareBytes(context, 'LabLedger_${DateTime.now().year}${DateTime.now().month.toString().padLeft(2, '0')}${DateTime.now().day.toString().padLeft(2, '0')}.xlsx',
+                LabDocs.fullWorkbook(app), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            app.log('export', 'Workbook', '', 'full Excel export');
+          }),
           tile(Icons.table_chart_rounded, 'All results (CSV)', '${app.samples.length} samples, for Excel',
               () => shareText(context, 'LabLedger_all_results.csv', Reports.resultsCsv(app), 'text/csv', subject: 'LabLedger results')),
           tile(Icons.picture_as_pdf_rounded, 'Reports for open samples (PDF)', 'One page per sample not yet reported', () async {
@@ -98,8 +121,7 @@ class MoreScreen extends StatelessWidget {
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No open samples with results.')));
               return;
             }
-            final bytes = await Reports.sampleReport(app, open);
-            if (context.mounted) await shareBytes(context, 'LabLedger_reports.pdf', bytes, 'application/pdf');
+            await exportSampleReport(context, open);
           }),
           tile(Icons.description_rounded, 'Reports for open samples (Word)', 'Editable .docx, one section per sample', () async {
             final open = app.samples.where((s) => s.status != SampleStatus.reported && s.results.isNotEmpty).toList();
@@ -138,7 +160,7 @@ class MoreScreen extends StatelessWidget {
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Demo data removed.')));
             }, color: c.fair),
           const SizedBox(height: 16),
-          Center(child: Text('LabLedger 1.0 · data stays on this device', style: LBText.body(c.inkDim, size: 12))),
+          Center(child: Text('LabLedger 1.1 · data stays on this device', style: LBText.body(c.inkDim, size: 12))),
         ],
       ),
     );
@@ -160,7 +182,7 @@ class LimitSetsScreen extends StatelessWidget {
         onPressed: () {
           final s = LimitSet(id: newId(), name: 'My standards');
           app.update(() => app.limitSets.add(s));
-          Navigator.of(context).push(MaterialPageRoute(builder: (_) => LimitSetScreen(set: s)));
+          openPage(context, LimitSetScreen(set: s));
         },
         icon: const Icon(Icons.add_rounded),
         label: const Text('New set'),
@@ -172,7 +194,7 @@ class LimitSetsScreen extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: LBCard(
-                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => LimitSetScreen(set: s))),
+                onTap: () => openPage(context, LimitSetScreen(set: s)),
                 child: Row(
                   children: [
                     Icon(s.builtIn ? Icons.public_rounded : Icons.edit_note_rounded, color: c.accent),
@@ -410,6 +432,54 @@ class SettingsScreen extends StatelessWidget {
             Expanded(child: field('Payment terms (days)', '${st.paymentTermsDays}', (v) => st.paymentTermsDays = int.tryParse(v) ?? st.paymentTermsDays, number: true)),
           ]),
           field('Bank / mobile-money details (printed on invoices)', st.bankDetails, (v) => st.bankDetails = v),
+          const SectionHeader('Reports'),
+          LBCard(
+            padding: const EdgeInsets.all(12),
+            child: Row(children: [
+              Container(
+                width: 120,
+                height: 64,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: c.line)),
+                child: st.logoB64.isEmpty
+                    ? Text('No logo', style: LBText.body(const Color(0xFF8C96A8), size: 12))
+                    : Padding(padding: const EdgeInsets.all(6), child: Image.memory(base64Decode(st.logoB64), fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(Icons.broken_image_outlined))),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('Laboratory logo', style: LBText.body(c.ink, weight: FontWeight.w700)),
+                  Text('Printed on test reports, quotations, invoices and forms. PNG or JPG under 600 KB.', style: LBText.body(c.inkDim, size: 12)),
+                  const SizedBox(height: 6),
+                  Wrap(spacing: 8, children: [
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        try {
+                          final b = await pickImageB64();
+                          if (b != null) app.update(() => st.logoB64 = b);
+                        } catch (e) {
+                          if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e'.replaceFirst('Exception: ', ''))));
+                        }
+                      },
+                      icon: const Icon(Icons.image_outlined, size: 18),
+                      label: Text(st.logoB64.isEmpty ? 'Choose logo' : 'Change'),
+                    ),
+                    if (st.logoB64.isNotEmpty) TextButton(onPressed: () => app.update(() => st.logoB64 = ''), child: const Text('Remove')),
+                  ]),
+                ]),
+              ),
+            ]),
+          ),
+          const SizedBox(height: 10),
+          field('Accreditation / status line', st.accreditation, (v) => st.accreditation = v, hint: 'e.g. Working towards ISO/IEC 17025:2017'),
+          field('Note printed at the end of every report', st.reportNote, (v) => st.reportNote = v, hint: 'Opinions and interpretations are outside the scope of accreditation…'),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: st.qrOnReports,
+            onChanged: (v) => app.update(() => st.qrOnReports = v),
+            title: const Text('QR verification code on final reports'),
+            subtitle: const Text('Each issued report gets a number and a code that can be checked under Quality → Verify a report.'),
+          ),
           const SectionHeader('QC acceptance limits'),
           field('Calibration r² minimum', '${st.r2Min}', (v) => st.r2Min = n(v, st.r2Min), number: true),
           field('Duplicate RPD maximum (%)', '${st.rpdMax}', (v) => st.rpdMax = n(v, st.rpdMax), number: true),

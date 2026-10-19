@@ -14,6 +14,7 @@ import 'qc_screen.dart';
 import 'sample_detail_screen.dart';
 import 'sample_form_screen.dart';
 import 'samples_screen.dart';
+import '../widgets/panels.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -95,7 +96,7 @@ class HomeScreen extends StatelessWidget {
                       child: _Action(
                         icon: Icons.add_circle_outline_rounded,
                         label: 'New sample',
-                        onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SampleFormScreen())),
+                        onTap: () => openNewSample(context),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -103,7 +104,7 @@ class HomeScreen extends StatelessWidget {
                       child: _Action(
                         icon: Icons.show_chart_rounded,
                         label: 'Calibrate',
-                        onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CalibrationEditScreen())),
+                        onTap: () => openPage(context, const CalibrationEditScreen()),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -119,7 +120,7 @@ class HomeScreen extends StatelessWidget {
                 const SizedBox(height: 10),
                 LBCard(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                  onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const InvestigationsScreen())),
+                  onTap: () => openPage(context, const InvestigationsScreen()),
                   child: Row(
                     children: [
                       Icon(Icons.travel_explore_rounded, color: c.accent),
@@ -146,7 +147,7 @@ class HomeScreen extends StatelessWidget {
                     return LBCard(
                       borderColor: (urgent ? c.poor : c.fair).withOpacity(0.5),
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const RegisterScreen())),
+                      onTap: () => openPage(context, const RegisterScreen()),
                       child: Row(children: [
                         Icon(urgent ? Icons.error_rounded : Icons.schedule_rounded, color: urgent ? c.poor : c.fair),
                         const SizedBox(width: 12),
@@ -171,7 +172,7 @@ class HomeScreen extends StatelessWidget {
                       child: LBCard(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                         borderColor: c.poor.withOpacity(0.4),
-                        onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SampleDetailScreen(sample: s))),
+                        onTap: () => openPage(context, SampleDetailScreen(sample: s)),
                         child: Row(
                           children: [
                             Icon(Icons.warning_amber_rounded, color: c.poor),

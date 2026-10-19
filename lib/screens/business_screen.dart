@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../core/business_docs.dart';
 import '../core/docx.dart';
+import '../core/lab_docs.dart';
 import '../data/app_state.dart';
 import '../data/models.dart';
 import '../theme/app_theme.dart';
@@ -12,6 +13,7 @@ import '../widgets/data_grid.dart';
 import '../widgets/inputs.dart';
 import '../widgets/share.dart';
 import 'sample_detail_screen.dart';
+import '../widgets/panels.dart';
 
 const _tabs = ['Requests & quotes', 'Invoices', 'Clients', 'Price list'];
 
@@ -337,7 +339,7 @@ class _BusinessScreenState extends State<BusinessScreen> {
     final params = TextEditingController(text: p.parameters.join(', '));
     var tat = p.turnaroundDays;
     var active = p.active;
-    final res = await showModalBottomSheet<String>(
+    final res = await showSheet<String>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -421,7 +423,7 @@ class _LinesEditorState extends State<LinesEditor> {
   Future<void> _addFromList() async {
     final app = AppScope.read(context);
     final items = app.prices.where((p) => p.active).toList()..sort((a, b) => a.code.compareTo(b.code));
-    final picked = await showModalBottomSheet<PriceItem>(
+    final picked = await showSheet<PriceItem>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
@@ -573,7 +575,7 @@ Future<void> _share(BuildContext context, Future<Uint8List> Function() make, Str
 // ---------------------------------------------------------------------------
 
 void openRequestEditor(BuildContext context, LabRequest? r) =>
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => RequestEditorScreen(request: r)));
+    openForm(context, RequestEditorScreen(request: r), width: 820);
 
 class RequestEditorScreen extends StatefulWidget {
   final LabRequest? request;
@@ -706,6 +708,26 @@ class _RequestEditorScreenState extends State<RequestEditorScreen> {
             icon: const Icon(Icons.description_rounded),
             onPressed: () => _share(context, () async => BusinessDocs.word(app, request: _r), '${_r.number}_quotation.docx', docxMime),
           ),
+          if (samples.isNotEmpty)
+            PopupMenuButton<String>(
+              tooltip: 'Results for this request',
+              icon: const Icon(Icons.assignment_turned_in_rounded),
+              onSelected: (v) async {
+                switch (v) {
+                  case 'pdf':
+                    await exportSampleReport(context, samples.where((s) => s.results.isNotEmpty).toList());
+                  case 'xlsx':
+                    await shareBytes(context, '${_r.number}_results.xlsx', LabDocs.samplesWorkbook(app, samples), xlsxMime);
+                  case 'summary':
+                    await showSummary(context, LabDocs.emailSummary(app, samples, heading: 'Results for ${_r.number}${_r.project.isEmpty ? '' : ' — ${_r.project}'}'));
+                }
+              },
+              itemBuilder: (_) => [
+                PopupMenuItem(value: 'pdf', child: Text('Certificates of analysis (${samples.where((s) => s.results.isNotEmpty).length} samples, PDF)')),
+                const PopupMenuItem(value: 'xlsx', child: Text('Results workbook (Excel)')),
+                const PopupMenuItem(value: 'summary', child: Text('E-mail summary to client')),
+              ],
+            ),
           if (!ro) TextButton(onPressed: _save, child: const Text('Save')),
         ],
       ),
@@ -800,7 +822,7 @@ class _RequestEditorScreenState extends State<RequestEditorScreen> {
                           title: Text(s.code, style: LBText.reading(13, c.ink, weight: FontWeight.w700)),
                           subtitle: Text('${s.matrix.label} · ${s.results.length} results', style: LBText.body(c.inkDim, size: 12)),
                           trailing: Tag(s.status.label, color: s.status == SampleStatus.reported ? c.good : c.accent),
-                          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SampleDetailScreen(sample: s))),
+                          onTap: () => openPage(context, SampleDetailScreen(sample: s)),
                         ),
                     ]),
                   ),
@@ -881,7 +903,7 @@ Future<bool> _confirm(BuildContext context, String title, String body) async {
 // ---------------------------------------------------------------------------
 
 void openInvoiceEditor(BuildContext context, Invoice? i) =>
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => InvoiceEditorScreen(invoice: i)));
+    openForm(context, InvoiceEditorScreen(invoice: i), width: 820);
 
 class InvoiceEditorScreen extends StatefulWidget {
   final Invoice? invoice;
@@ -1130,7 +1152,7 @@ class _InvoiceEditorScreenState extends State<InvoiceEditorScreen> {
 // ---------------------------------------------------------------------------
 
 Future<Client?> openClientEditor(BuildContext context, Client? cl) =>
-    Navigator.of(context).push<Client>(MaterialPageRoute(builder: (_) => ClientScreen(client: cl)));
+    openForm<Client>(context, ClientScreen(client: cl), width: 720);
 
 class ClientScreen extends StatefulWidget {
   final Client? client;

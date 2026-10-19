@@ -191,6 +191,10 @@ class Sample {
   String? requestId;
   DateTime? dueDate;
   DateTime? reportedAt;
+  String? tripId;
+  String weather;
+  String fieldNotes; // observations at the site: colour, odour, flow, activities nearby
+  final List<String> photos; // file paths on this device
 
   SampleStatus get status => _status;
   set status(SampleStatus v) {
@@ -226,9 +230,14 @@ class Sample {
     this.requestId,
     this.dueDate,
     this.reportedAt,
+    this.tripId,
+    this.weather = '',
+    this.fieldNotes = '',
+    List<String>? photos,
     List<Custody>? custody,
     List<Result>? results,
   })  : _status = status,
+        photos = photos ?? [],
         collectedAt = collectedAt ?? DateTime.now(),
         custody = custody ?? [],
         results = results ?? [];
@@ -253,6 +262,10 @@ class Sample {
         'requestId': requestId,
         'dueDate': dueDate?.toIso8601String(),
         'reportedAt': reportedAt?.toIso8601String(),
+        'tripId': tripId,
+        'weather': weather,
+        'fieldNotes': fieldNotes,
+        'photos': photos,
         'custody': [for (final c in custody) c.toJson()],
         'results': [for (final r in results) r.toJson()],
       };
@@ -277,6 +290,10 @@ class Sample {
         requestId: j['requestId'] as String?,
         dueDate: _tn(j['dueDate']),
         reportedAt: _tn(j['reportedAt']),
+        tripId: j['tripId'] as String?,
+        weather: j['weather'] as String? ?? '',
+        fieldNotes: j['fieldNotes'] as String? ?? '',
+        photos: [for (final p in (j['photos'] as List? ?? const [])) p as String],
         custody: [for (final c in (j['custody'] as List? ?? const [])) Custody.fromJson((c as Map).cast<String, dynamic>())],
         results: [for (final r in (j['results'] as List? ?? const [])) Result.fromJson((r as Map).cast<String, dynamic>())],
       );

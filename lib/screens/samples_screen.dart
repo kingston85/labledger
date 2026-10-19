@@ -10,6 +10,9 @@ import '../widgets/data_grid.dart';
 import '../widgets/share.dart';
 import 'sample_detail_screen.dart';
 import 'sample_form_screen.dart';
+import '../widgets/panels.dart';
+import '../core/lab_docs.dart';
+import 'search_screen.dart';
 
 class SamplesScreen extends StatefulWidget {
   const SamplesScreen({super.key});
@@ -52,17 +55,38 @@ class _SamplesScreenState extends State<SamplesScreen> {
         title: const Text('Samples'),
         actions: [
           IconButton(
-            tooltip: 'Export results (CSV)',
+            tooltip: 'Search everything (Ctrl+K)',
+            icon: const Icon(Icons.manage_search_rounded),
+            onPressed: () => showGlobalSearch(context),
+          ),
+          PopupMenuButton<String>(
+            tooltip: 'Export the ${list.length} samples shown',
             icon: const Icon(Icons.ios_share_rounded),
-            onPressed: () => shareText(context, 'LabLedger_results.csv', Reports.resultsCsv(app, list), 'text/csv',
-                subject: 'LabLedger results'),
+            onSelected: (v) async {
+              switch (v) {
+                case 'xlsx':
+                  await shareBytes(context, 'LabLedger_samples.xlsx', LabDocs.samplesWorkbook(app, list), xlsxMime, subject: 'LabLedger results');
+                case 'csv':
+                  await shareText(context, 'LabLedger_results.csv', Reports.resultsCsv(app, list), 'text/csv', subject: 'LabLedger results');
+                case 'pdf':
+                  await exportSampleReport(context, list.where((s) => s.results.isNotEmpty).take(60).toList());
+                case 'summary':
+                  await showSummary(context, LabDocs.emailSummary(app, list.take(30).toList()));
+              }
+            },
+            itemBuilder: (_) => [
+              PopupMenuItem(value: 'xlsx', child: Text('Excel workbook (${list.length} samples)')),
+              const PopupMenuItem(value: 'csv', child: Text('CSV (all results)')),
+              const PopupMenuItem(value: 'pdf', child: Text('Batch PDF certificates')),
+              const PopupMenuItem(value: 'summary', child: Text('E-mail summary')),
+            ],
           ),
         ],
       ),
       floatingActionButton: !app.canEdit
           ? null
           : FloatingActionButton.extended(
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SampleFormScreen())),
+              onPressed: () => openNewSample(context),
               icon: const Icon(Icons.add_rounded),
               label: const Text('New sample'),
             ),
@@ -123,7 +147,7 @@ class _SamplesScreenState extends State<SamplesScreen> {
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
                 child: DataGrid<Sample>(
                   rows: list,
-                  onTap: (s) => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SampleDetailScreen(sample: s))),
+                  onTap: (s) => openPage(context, SampleDetailScreen(sample: s)),
                   minWidth: 1000,
                   initialSort: 5,
                   initialAscending: false,
@@ -201,7 +225,7 @@ class SampleTile extends StatelessWidget {
     return LBCard(
       padding: const EdgeInsets.all(14),
       borderColor: bad > 0 ? c.poor.withOpacity(0.45) : null,
-      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SampleDetailScreen(sample: sample))),
+      onTap: () => openPage(context, SampleDetailScreen(sample: sample)),
       child: Row(
         children: [
           Container(

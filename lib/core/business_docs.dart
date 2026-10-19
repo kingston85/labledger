@@ -9,6 +9,7 @@ import 'package:pdf/widgets.dart' as pw;
 import '../data/app_state.dart';
 import '../data/models.dart';
 import 'docx.dart';
+import 'lab_docs.dart';
 
 const _accent = PdfColor.fromInt(0xFF2F5BD3);
 const _ink = PdfColor.fromInt(0xFF0E1116);
@@ -58,6 +59,7 @@ class BusinessDocs {
         pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
           pw.Expanded(
             child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+              if (pdfLogo(app, height: 42) != null) ...[pdfLogo(app, height: 42)!, pw.SizedBox(height: 6)],
               pw.Text(st.labName, style: pw.TextStyle(font: bold, fontSize: 14)),
               if (st.labAddress.isNotEmpty) pw.Text(st.labAddress, style: const pw.TextStyle(fontSize: 9, color: _dim)),
               if (st.labPhone.isNotEmpty || st.labEmail.isNotEmpty)

@@ -4,15 +4,20 @@ import '../core/analytics.dart';
 import '../core/guidelines.dart';
 import '../core/report.dart';
 import '../data/app_state.dart';
+import '../data/lab_ops.dart';
 import '../data/models.dart';
 import '../main.dart';
 import '../theme/app_theme.dart';
 import '../widgets/charts.dart';
 import '../widgets/components.dart';
 import 'business_screen.dart';
+import 'calendar_screen.dart';
+import 'field_screen.dart';
+import 'quality_screen.dart';
 import 'import_screen.dart';
 import 'sample_detail_screen.dart';
 import 'sample_form_screen.dart';
+import '../widgets/panels.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -218,16 +223,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
       Column(children: [
         for (final s in overdue.take(4))
           queueRow(Icons.timer_off_rounded, c.poor, '${s.code} overdue', 'Due ${shortDate(s.dueDate!)} · ${s.status.label}',
-              () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SampleDetailScreen(sample: s)))),
+              () => openPage(context, SampleDetailScreen(sample: s))),
         for (final s in toApprove.take(4))
           queueRow(Icons.approval_rounded, c.fair, '${s.code} awaiting approval', '${s.results.where((r) => !r.approved).length} results to review',
-              () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SampleDetailScreen(sample: s)))),
+              () => openPage(context, SampleDetailScreen(sample: s))),
         for (final i in overdueInv.take(3))
           queueRow(Icons.receipt_long_rounded, c.poor, '${i.number} overdue', '${app.client(i.clientId)?.name ?? ''} · ${money(i.balance, cur)} due', () => _go('invoices')),
         for (final al in app.registerAlerts.take(3)) queueRow(al.$3 == 2 ? Icons.error_rounded : Icons.schedule_rounded, al.$3 == 2 ? c.poor : c.fair, al.$1, al.$2, () => _go('register')),
-        if (overdue.isEmpty && toApprove.isEmpty && overdueInv.isEmpty && app.registerAlerts.isEmpty)
+        for (final al in app.qualityAlerts.take(3)) queueRow(Icons.verified_user_rounded, al.$3 == 2 ? c.poor : c.fair, al.$1, al.$2, () => _go('quality')),
+        if (overdue.isEmpty && toApprove.isEmpty && overdueInv.isEmpty && app.registerAlerts.isEmpty && app.qualityAlerts.isEmpty)
           Padding(padding: const EdgeInsets.all(8), child: Text('All clear. Nothing overdue or waiting.', style: LBText.body(c.good, size: 13))),
       ]),
+    );
+
+    final today = DateTime(now.year, now.month, now.day);
+    final upcoming = app.calendarEvents().where((e) => !e.date.isBefore(today)).take(7).toList();
+    final upcomingPanel = panel(
+      'Coming up',
+      Column(children: [
+        if (upcoming.isEmpty) Padding(padding: const EdgeInsets.all(8), child: Text('Nothing scheduled.', style: LBText.body(c.inkDim, size: 13))),
+        for (final e in upcoming)
+          ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            onTap: () => openCalEvent(context, e),
+            leading: Icon(calIcon(e.kind), color: calColor(c, e.kind), size: 20),
+            title: Text(e.title, style: LBText.body(c.ink, size: 13, weight: FontWeight.w600), overflow: TextOverflow.ellipsis),
+            subtitle: Text(e.kind.label, style: LBText.body(c.inkDim, size: 11.5)),
+            trailing: Text(daysUntil(e.date) == 0 ? 'today' : 'in ${daysUntil(e.date)} d', style: LBText.reading(11.5, c.inkDim)),
+          ),
+      ]),
+      trailing: TextButton(onPressed: () => _go('calendar'), child: const Text('Calendar')),
     );
 
     final recent = [...app.samples]..sort((x, y) => (y.receivedAt ?? y.collectedAt).compareTo(x.receivedAt ?? x.collectedAt));
@@ -238,7 +264,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ListTile(
             dense: true,
             contentPadding: EdgeInsets.zero,
-            onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SampleDetailScreen(sample: s))),
+            onTap: () => openPage(context, SampleDetailScreen(sample: s)),
             title: Text(s.code, style: LBText.reading(13, c.ink, weight: FontWeight.w700)),
             subtitle: Text(s.site.isEmpty ? s.matrix.label : s.site, style: LBText.body(c.inkDim, size: 11.5), overflow: TextOverflow.ellipsis),
             trailing: Tag(s.status.label, color: s.status == SampleStatus.reported ? c.good : c.accent),
@@ -283,13 +309,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Wrap(spacing: 8, runSpacing: 8, children: [
             if (app.canEdit)
               FilledButton.icon(
-                onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SampleFormScreen())),
+                onPressed: () => openNewSample(context),
                 icon: const Icon(Icons.add_rounded),
                 label: const Text('New sample'),
               ),
             if (app.canEdit)
               OutlinedButton.icon(
-                onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ImportScreen())),
+                onPressed: () => openPage(context, const ImportScreen()),
                 icon: const Icon(Icons.upload_file_rounded),
                 label: const Text('Import results'),
               ),
@@ -297,6 +323,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
               OutlinedButton.icon(onPressed: () => openRequestEditor(context, null), icon: const Icon(Icons.request_quote_outlined), label: const Text('New request')),
             if (app.canEdit)
               OutlinedButton.icon(onPressed: () => openInvoiceEditor(context, null), icon: const Icon(Icons.receipt_long_outlined), label: const Text('New invoice')),
+            if (app.canEdit)
+              OutlinedButton.icon(onPressed: () => openTripEditor(context, null), icon: const Icon(Icons.add_road_rounded), label: const Text('Plan a trip')),
+            if (app.canEdit)
+              OutlinedButton.icon(onPressed: () => openNcEditor(context, null), icon: const Icon(Icons.report_gmailerrorred_rounded), label: const Text('Raise NC')),
           ]),
           const SizedBox(height: 14),
           Wrap(spacing: 10, runSpacing: 10, children: [
@@ -307,6 +337,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 spark: a.compliancePerMonth().whereType<double>().toList()),
             kpi('Turnaround', tat == null ? '—' : '${tat.toStringAsFixed(1)} d', 'mean receipt → report', Icons.timer_rounded, TLBlue.blue),
             kpi('Collected', money(collected.isEmpty ? 0 : collected.last, cur), 'payments this month', Icons.payments_rounded, c.good, spark: collected, onTap: () => _go('invoices')),
+            kpi('Quality actions', '${app.openNcs.length}', '${app.openNcs.where((n) => n.overdue).length} overdue · PT ${app.ptSuccessRate == null ? '—' : '${app.ptSuccessRate!.toStringAsFixed(0)}%'} satisfactory',
+                Icons.verified_user_rounded, app.openNcs.any((n) => n.overdue) ? c.poor : c.good, onTap: () => _go('quality')),
             kpi('Outstanding', money(app.outstanding, cur), '${overdueInv.length} invoice${overdueInv.length == 1 ? '' : 's'} overdue', Icons.account_balance_wallet_rounded,
                 overdueInv.isEmpty ? c.fair : c.poor, onTap: () => _go('invoices')),
           ]),
@@ -315,10 +347,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Expanded(flex: 3, child: Column(children: [queue, const SizedBox(height: 12), trendPanel])),
               const SizedBox(width: 12),
-              Expanded(flex: 2, child: recentPanel),
+              Expanded(flex: 2, child: Column(children: [upcomingPanel, const SizedBox(height: 12), recentPanel])),
             ])
           else ...[
             queue,
+            const SizedBox(height: 12),
+            upcomingPanel,
             const SizedBox(height: 12),
             recentPanel,
             const SizedBox(height: 12),

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- LabLedger MSIX manifest. CI fills the __TOKENS__ from the repository
+     variables MSIX_IDENTITY_NAME, MSIX_PUBLISHER and MSIX_PUBLISHER_NAME
+     (copy them from Partner Center → Product identity). -->
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+         IgnorableNamespaces="uap rescap">
+  <Identity Name="__IDENTITY__" Publisher="__PUBLISHER__" Version="__VERSION__" ProcessorArchitecture="x64" />
+  <Properties>
+    <DisplayName>LabLedger</DisplayName>
+    <PublisherDisplayName>__PUBLISHER_NAME__</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <Description>Laboratory data, QA/QC and lab management: samples, results against limits, calibration, QC, field trips, quality system, inventory, clients and invoices.</Description>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0" />
+  </Dependencies>
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+  <Applications>
+    <Application Id="LabLedger" Executable="LabLedger.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements DisplayName="LabLedger" Description="Laboratory data and QA/QC suite"
+                          BackgroundColor="transparent"
+                          Square150x150Logo="Assets\Square150x150Logo.png"
+                          Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" Square71x71Logo="Assets\Square71x71Logo.png" Square310x310Logo="Assets\Square310x310Logo.png" ShortName="LabLedger" />
+      </uap:VisualElements>
+    </Application>
+  </Applications>
+  <Capabilities>
+    <Capability Name="internetClient" />
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

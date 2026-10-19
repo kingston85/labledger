@@ -4,18 +4,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'data/app_state.dart';
+import 'data/lab_ops.dart';
 import 'data/models.dart';
 import 'screens/admin_screen.dart';
 import 'screens/business_screen.dart';
+import 'screens/calendar_screen.dart';
 import 'screens/calibration_screen.dart';
 import 'screens/dashboard_screen.dart';
+import 'screens/field_screen.dart';
 import 'screens/investigation_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/map_screen.dart';
 import 'screens/more_screen.dart';
 import 'screens/qc_screen.dart';
+import 'screens/quality_screen.dart';
 import 'screens/register_screen.dart';
 import 'screens/samples_screen.dart';
+import 'screens/search_screen.dart';
 import 'screens/stats_screen.dart';
 import 'theme/app_theme.dart';
 
@@ -64,24 +69,27 @@ class NavItem {
 
 const navItems = <NavItem>[
   NavItem('dashboard', 'Overview', Icons.space_dashboard_outlined, Icons.space_dashboard_rounded, 'Dashboard', DashboardScreen()),
+  NavItem('calendar', 'Overview', Icons.calendar_month_outlined, Icons.calendar_month_rounded, 'Lab calendar', CalendarScreen()),
   NavItem('samples', 'Laboratory', Icons.science_outlined, Icons.science_rounded, 'Samples', SamplesScreen()),
   NavItem('investigations', 'Laboratory', Icons.travel_explore_outlined, Icons.travel_explore_rounded, 'Investigations', InvestigationsScreen()),
   NavItem('calibration', 'Laboratory', Icons.show_chart_outlined, Icons.show_chart_rounded, 'Calibration', CalibrationScreen()),
-  NavItem('qc', 'Laboratory', Icons.verified_outlined, Icons.verified_rounded, 'Quality control', QcScreen()),
+  NavItem('qc', 'Laboratory', Icons.rule_outlined, Icons.rule_rounded, 'QC checks & charts', QcScreen()),
   NavItem('stats', 'Laboratory', Icons.functions_outlined, Icons.functions_rounded, 'Statistics', StatsScreen()),
+  NavItem('field', 'Field', Icons.route_outlined, Icons.route_rounded, 'Field trips', FieldScreen()),
   NavItem('map', 'Field', Icons.map_outlined, Icons.map_rounded, 'Map & GIS', MapScreen()),
+  NavItem('quality', 'Quality & resources', Icons.verified_user_outlined, Icons.verified_user_rounded, 'Quality system', QualityScreen()),
+  NavItem('register', 'Quality & resources', Icons.inventory_2_outlined, Icons.inventory_2_rounded, 'Inventory & equipment', RegisterScreen()),
   NavItem('requests', 'Business', Icons.request_quote_outlined, Icons.request_quote_rounded, 'Requests & quotes', BusinessScreen(tab: 0)),
   NavItem('invoices', 'Business', Icons.receipt_long_outlined, Icons.receipt_long_rounded, 'Invoices', BusinessScreen(tab: 1)),
   NavItem('clients', 'Business', Icons.business_outlined, Icons.business_rounded, 'Clients', BusinessScreen(tab: 2)),
   NavItem('prices', 'Business', Icons.sell_outlined, Icons.sell_rounded, 'Price list', BusinessScreen(tab: 3)),
-  NavItem('register', 'Administration', Icons.precision_manufacturing_outlined, Icons.precision_manufacturing_rounded, 'Lab register', RegisterScreen()),
   NavItem('admin', 'Administration', Icons.admin_panel_settings_outlined, Icons.admin_panel_settings_rounded, 'Users & audit', AdminScreen()),
   NavItem('more', 'Administration', Icons.tune_outlined, Icons.tune_rounded, 'Settings & tools', MoreScreen()),
 ];
 
 // Phone bottom bar: a subset; everything else is reachable from "More".
-const _phoneKeys = ['dashboard', 'samples', 'map', 'requests', 'more'];
-const _phoneLabels = ['Home', 'Samples', 'Map', 'Business', 'More'];
+const _phoneKeys = ['dashboard', 'samples', 'field', 'requests', 'more'];
+const _phoneLabels = ['Home', 'Samples', 'Field', 'Business', 'More'];
 
 class Shell extends StatefulWidget {
   const Shell({super.key});
@@ -94,6 +102,9 @@ class ShellState extends State<Shell> with WidgetsBindingObserver {
   String current = 'dashboard';
   Timer? _lock;
   bool _collapsed = false;
+  // One navigator per section on wide screens, so detail pages open inside
+  // the workspace and the sidebar stays put.
+  final Map<String, GlobalKey<NavigatorState>> _navKeys = {for (final n in navItems) n.key: GlobalKey<NavigatorState>()};
 
   @override
   void initState() {
@@ -121,8 +132,17 @@ class ShellState extends State<Shell> with WidgetsBindingObserver {
     if (s != AppLifecycleState.resumed) AppScope.read(context).saveNow();
   }
 
-  /// Navigate to a section by key ('samples', 'invoices', …).
-  void goTo(String key) => setState(() => current = key);
+  /// Navigate to a section by key ('samples', 'invoices', …). Choosing the
+  /// section you are already in returns to its first page.
+  void goTo(String key) {
+    if (key == current) _navKeys[key]?.currentState?.popUntil((r) => r.isFirst);
+    setState(() => current = key);
+  }
+
+  /// Context inside the current section (for opening pages from the shell).
+  BuildContext get sectionContext => _navKeys[current]?.currentContext ?? context;
+
+  void _search() => showGlobalSearch(MediaQuery.sizeOf(context).width >= 900 ? sectionContext : context);
 
   /// Legacy numeric navigation (0 home, 1 samples, 2 calibration, 3 QC, 4 more).
   void go(int i) => goTo(const ['dashboard', 'samples', 'calibration', 'qc', 'more'][i.clamp(0, 4).toInt()]);
@@ -132,15 +152,34 @@ class ShellState extends State<Shell> with WidgetsBindingObserver {
     final c = context.lb;
     final wide = MediaQuery.sizeOf(context).width >= 900;
     final index = navItems.indexWhere((n) => n.key == current).clamp(0, navItems.length - 1).toInt();
-    final pages = IndexedStack(index: index, children: [for (final n in navItems) n.page]);
+    final pages = IndexedStack(index: index, children: [
+      for (final n in navItems)
+        wide
+            ? HeroControllerScope.none(
+                child: Navigator(
+                  key: _navKeys[n.key],
+                  onGenerateRoute: (_) => MaterialPageRoute(builder: (_) => n.page),
+                ),
+              )
+            : n.page,
+    ]);
 
     if (wide) {
-      return Scaffold(
-        body: Row(children: [
-          _Sidebar(current: current, collapsed: _collapsed, onSelect: goTo, onToggle: () => setState(() => _collapsed = !_collapsed)),
-          VerticalDivider(width: 1, color: c.line),
-          Expanded(child: pages),
-        ]),
+      return CallbackShortcuts(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.keyK, control: true): _search,
+          const SingleActivator(LogicalKeyboardKey.keyF, control: true, shift: true): _search,
+        },
+        child: Focus(
+          autofocus: true,
+          child: Scaffold(
+            body: Row(children: [
+              _Sidebar(current: current, collapsed: _collapsed, onSelect: goTo, onSearch: _search, onToggle: () => setState(() => _collapsed = !_collapsed)),
+              VerticalDivider(width: 1, color: c.line),
+              Expanded(child: pages),
+            ]),
+          ),
+        ),
       );
     }
     // Business sub-pages share the "Business" tab on phones.
@@ -148,6 +187,7 @@ class ShellState extends State<Shell> with WidgetsBindingObserver {
       final i = _phoneKeys.indexOf(current);
       if (i >= 0) return i;
       if (const ['invoices', 'clients', 'prices'].contains(current)) return 3;
+      if (current == 'map') return 2;
       return 4;
     }();
     return Scaffold(
@@ -177,7 +217,8 @@ class _Sidebar extends StatelessWidget {
   final bool collapsed;
   final ValueChanged<String> onSelect;
   final VoidCallback onToggle;
-  const _Sidebar({required this.current, required this.collapsed, required this.onSelect, required this.onToggle});
+  final VoidCallback onSearch;
+  const _Sidebar({required this.current, required this.collapsed, required this.onSelect, required this.onToggle, required this.onSearch});
 
   @override
   Widget build(BuildContext context) {
@@ -191,12 +232,19 @@ class _Sidebar extends StatelessWidget {
     final alerts = app.registerAlerts.length;
     final overdueInv = app.invoices.where((i) => i.status.name == 'overdue').length;
     final toApprove = app.settings.requireApproval ? app.samples.where((s) => s.results.isNotEmpty && s.results.any((r) => !r.approved) && s.status.index >= 2).length : 0;
+    final qAlerts = app.qualityAlerts.where((a) => a.$3 == 2).length;
+    final lateEvents = app.calendarEvents().where((e) => e.overdue).length;
+    final inField = app.trips.where((t) => t.status.index == 1).length;
     int? badge(String key) => switch (key) {
           'register' => alerts == 0 ? null : alerts,
           'invoices' => overdueInv == 0 ? null : overdueInv,
           'samples' => toApprove == 0 ? null : toApprove,
+          'quality' => qAlerts == 0 ? null : qAlerts,
+          'calendar' => lateEvents == 0 ? null : lateEvents,
+          'field' => inField == 0 ? null : inField,
           _ => null,
         };
+    Color badgeColor(String key) => switch (key) { 'samples' || 'calendar' => c.fair, 'field' => c.accent, _ => c.poor };
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
@@ -225,9 +273,34 @@ class _Sidebar extends StatelessWidget {
             ),
           ]),
         ),
-        Divider(height: 1, color: c.line),
+        Padding(
+          padding: EdgeInsets.fromLTRB(collapsed ? 12 : 12, 10, 12, 4),
+          child: Material(
+            color: c.surface2,
+            borderRadius: BorderRadius.circular(10),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: onSearch,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                child: Row(children: [
+                  Icon(Icons.search_rounded, size: 19, color: c.inkDim),
+                  if (!collapsed) ...[
+                    const SizedBox(width: 10),
+                    Expanded(child: Text('Search', style: LBText.body(c.inkDim, size: 13))),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(border: Border.all(color: c.line), borderRadius: BorderRadius.circular(6)),
+                      child: Text('Ctrl K', style: LBText.reading(10, c.inkDim)),
+                    ),
+                  ],
+                ]),
+              ),
+            ),
+          ),
+        ),
         Expanded(
-          child: ListView(padding: const EdgeInsets.symmetric(vertical: 8), children: [
+          child: ListView(padding: const EdgeInsets.symmetric(vertical: 4), children: [
             for (final g in groups) ...[
               if (!collapsed)
                 Padding(
@@ -260,8 +333,8 @@ class _Sidebar extends StatelessWidget {
                               if (badge(n.key) != null)
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                                  decoration: BoxDecoration(color: (n.key == 'samples' ? c.fair : c.poor).withOpacity(0.18), borderRadius: BorderRadius.circular(10)),
-                                  child: Text('${badge(n.key)}', style: LBText.reading(11, n.key == 'samples' ? c.fair : c.poor, weight: FontWeight.w700)),
+                                  decoration: BoxDecoration(color: badgeColor(n.key).withOpacity(0.18), borderRadius: BorderRadius.circular(10)),
+                                  child: Text('${badge(n.key)}', style: LBText.reading(11, badgeColor(n.key), weight: FontWeight.w700)),
                                 ),
                             ],
                           ]),

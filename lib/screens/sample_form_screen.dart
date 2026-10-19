@@ -3,10 +3,18 @@ import 'package:flutter/material.dart';
 import '../core/location_service.dart';
 import '../core/utm.dart';
 import '../data/app_state.dart';
+import '../data/lab_ops.dart';
 import '../data/models.dart';
 import '../theme/app_theme.dart';
 import '../widgets/components.dart';
+import '../widgets/panels.dart';
 import 'sample_detail_screen.dart';
+
+/// Opens the new-sample form (side panel on a PC) and then the new sample.
+Future<void> openNewSample(BuildContext context) async {
+  final s = await openForm<Sample>(context, const SampleFormScreen(), width: 720);
+  if (s != null && context.mounted) openPage(context, SampleDetailScreen(sample: s));
+}
 
 class SampleFormScreen extends StatefulWidget {
   final Sample? sample; // null = new
@@ -32,6 +40,9 @@ class _SampleFormScreenState extends State<SampleFormScreen> {
   bool _control = false;
   String? _clientId;
   String? _requestId;
+  String? _tripId;
+  final _weather = TextEditingController();
+  final _fieldNotes = TextEditingController();
   DateTime? _due;
   Matrix _matrix = Matrix.surfaceWater;
   SampleStatus _status = SampleStatus.collected;
@@ -72,6 +83,9 @@ class _SampleFormScreenState extends State<SampleFormScreen> {
       _clientId = s.clientId;
       _requestId = s.requestId;
       _due = s.dueDate;
+      _tripId = s.tripId;
+      _weather.text = s.weather;
+      _fieldNotes.text = s.fieldNotes;
       final m = RegExp(r'^([A-Za-z0-9]+(?:-[A-Za-z])?)-').firstMatch(s.code);
       if (m != null) _sitePrefix.text = m.group(1)!.replaceAll(RegExp(r'-C$'), '');
     }
@@ -160,8 +174,11 @@ class _SampleFormScreenState extends State<SampleFormScreen> {
         clientId: _clientId,
         requestId: _requestId,
         dueDate: _due,
+        tripId: _tripId,
+        weather: _weather.text.trim(),
+        fieldNotes: _fieldNotes.text.trim(),
       ));
-      Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => SampleDetailScreen(sample: s)));
+      Navigator.of(context).pop(s);
     } else {
       final s = widget.sample!;
       app.update(() {
@@ -182,6 +199,9 @@ class _SampleFormScreenState extends State<SampleFormScreen> {
         s.clientId = _clientId;
         s.requestId = _requestId;
         s.dueDate = _due;
+        s.tripId = _tripId;
+        s.weather = _weather.text.trim();
+        s.fieldNotes = _fieldNotes.text.trim();
         app.log('update', 'Sample', s.code, 'details edited');
       });
       Navigator.pop(context);
@@ -363,6 +383,41 @@ class _SampleFormScreenState extends State<SampleFormScreen> {
               for (final p in _presPresets)
                 ActionChip(label: Text(p), onPressed: () => setState(() => _pres.text = p), visualDensity: VisualDensity.compact),
             ],
+          ),
+          const SectionHeader('Field information'),
+          DropdownButtonFormField<String?>(
+            value: app.trip(_tripId) == null ? null : _tripId,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Field trip'),
+            items: [
+              const DropdownMenuItem<String?>(value: null, child: Text('— none —')),
+              for (final t in [...app.trips]..sort((a, b) => b.date.compareTo(a.date)))
+                DropdownMenuItem<String?>(value: t.id, child: Text('${t.title} · ${shortDate(t.date)}', overflow: TextOverflow.ellipsis)),
+            ],
+            onChanged: (v) => setState(() {
+              _tripId = v;
+              final t = app.trip(v);
+              if (t != null) {
+                if (_project.text.trim().isEmpty) _project.text = t.project;
+                _clientId ??= t.clientId;
+                _requestId ??= t.requestId;
+                if (_collector.text.trim().isEmpty && t.team.isNotEmpty) _collector.text = t.team.first;
+              }
+            }),
+          ),
+          gap(),
+          TextField(controller: _weather, decoration: const InputDecoration(labelText: 'Weather')),
+          const SizedBox(height: 6),
+          Wrap(spacing: 6, runSpacing: 6, children: [
+            for (final w in const ['Sunny, dry', 'Overcast', 'Light rain', 'Heavy rain', 'After heavy rain'])
+              ActionChip(label: Text(w), onPressed: () => setState(() => _weather.text = w), visualDensity: VisualDensity.compact),
+          ]),
+          gap(),
+          TextField(
+            controller: _fieldNotes,
+            maxLines: 3,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(labelText: 'Field observations', hintText: 'Colour, odour, flow, nearby activities, sample condition'),
           ),
           const SectionHeader('Client & request'),
           DropdownButtonFormField<String?>(

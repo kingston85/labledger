@@ -11,6 +11,7 @@ import '../theme/app_theme.dart';
 import '../widgets/components.dart';
 import '../widgets/inputs.dart';
 import '../widgets/plot.dart';
+import '../widgets/panels.dart';
 
 class CalibrationScreen extends StatelessWidget {
   const CalibrationScreen({super.key});
@@ -23,7 +24,7 @@ class CalibrationScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Calibration')),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CalibrationEditScreen())),
+        onPressed: () => openPage(context, const CalibrationEditScreen()),
         icon: const Icon(Icons.add_rounded),
         label: const Text('New curve'),
       ),
@@ -47,7 +48,7 @@ class CalibrationScreen extends StatelessWidget {
                 } catch (_) {}
                 final ok = fit != null && fit.r2 >= app.settings.r2Min;
                 return LBCard(
-                  onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => CalibrationEditScreen(run: r))),
+                  onTap: () => openPage(context, CalibrationEditScreen(run: r)),
                   child: Row(
                     children: [
                       Container(
