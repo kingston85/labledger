@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'data/app_state.dart';
+import 'data/models.dart';
 import 'screens/admin_screen.dart';
 import 'screens/business_screen.dart';
 import 'screens/calibration_screen.dart';
