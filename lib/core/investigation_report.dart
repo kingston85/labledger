@@ -19,14 +19,14 @@ const _dim = PdfColor.fromInt(0xFF5A6478);
 const _line = PdfColor.fromInt(0xFFD5DAE2);
 const _panel = PdfColor.fromInt(0xFFF4F6F9);
 const _bad = PdfColor.fromInt(0xFFC62828);
-const _badBg = PdfColor.fromInt(0x22C62828);
-const _ctrlBg = PdfColor.fromInt(0x180F8A55);
+const _badBg = PdfColor.fromInt(0xFFF7E2E2);
+const _ctrlBg = PdfColor.fromInt(0xFFE8F4EF);
 
 PdfColor _cfColor(double cf) {
-  if (cf < 1) return const PdfColor.fromInt(0x00FFFFFF);
-  if (cf < 3) return const PdfColor.fromInt(0x33F2B807);
-  if (cf < 6) return const PdfColor.fromInt(0x55F28C07);
-  return const PdfColor.fromInt(0x55C62828);
+  if (cf < 1) return const PdfColor.fromInt(0xFFFFFFFF);
+  if (cf < 3) return const PdfColor.fromInt(0xFFFCF1CD);
+  if (cf < 6) return const PdfColor.fromInt(0xFFFBD9AC);
+  return const PdfColor.fromInt(0xFFECB7B7);
 }
 
 String _stdText(Limit? l) {

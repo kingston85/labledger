@@ -164,7 +164,7 @@ class Reports {
           pw.Container(
             padding: const pw.EdgeInsets.all(8),
             decoration: pw.BoxDecoration(
-              color: exceed > 0 ? const PdfColor.fromInt(0x1AC62828) : const PdfColor.fromInt(0x1A0F8A55),
+              color: exceed > 0 ? const PdfColor.fromInt(0xFFF9E9E9) : const PdfColor.fromInt(0xFFE7F3EE),
               borderRadius: const pw.BorderRadius.all(pw.Radius.circular(5)),
             ),
             child: pw.Text(
@@ -210,7 +210,7 @@ class Reports {
               if (rowNum < 1 || rowNum > checks.length) return const pw.BoxDecoration();
               final st = checks[rowNum - 1].status;
               return st == Compliance.exceed || st == Compliance.belowMin
-                  ? const pw.BoxDecoration(color: PdfColor.fromInt(0x14C62828))
+                  ? const pw.BoxDecoration(color: PdfColor.fromInt(0xFFFBEEEE))
                   : const pw.BoxDecoration();
             },
           ),
@@ -335,7 +335,7 @@ class Reports {
 
   static pw.Widget _sig(String label, String name, pw.Font bold) => pw.Expanded(
         child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-          pw.Container(height: 18, alignment: pw.Alignment.bottomLeft, child: pw.Text(name, style: const pw.TextStyle(fontSize: 9.5))),
+          pw.Container(constraints: const pw.BoxConstraints(minHeight: 18), alignment: pw.Alignment.bottomLeft, child: pw.Text(name, style: const pw.TextStyle(fontSize: 9))),
           pw.Container(height: 0.8, color: _ink),
           pw.SizedBox(height: 3),
           pw.Text(label, style: const pw.TextStyle(fontSize: 7.5, color: _dim)),

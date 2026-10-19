@@ -207,7 +207,7 @@ class LabDocs {
             ]),
             for (final r in _guideFor(t))
               pw.TableRow(children: [
-                pw.Padding(padding: const pw.EdgeInsets.all(2.5), child: pw.Text(r.group == 'Metals' ? 'Metals (total / dissolved)' : r.keys.first[0].toUpperCase() + r.keys.first.substring(1), style: const pw.TextStyle(fontSize: 7))),
+                pw.Padding(padding: const pw.EdgeInsets.all(2.5), child: pw.Text(r.group == 'Metals' ? 'Metals (total / dissolved)' : (r.group == 'Microbiology' ? 'E. coli / coliforms' : r.keys.first[0].toUpperCase() + r.keys.first.substring(1)), style: const pw.TextStyle(fontSize: 7))),
                 pw.Padding(padding: const pw.EdgeInsets.all(2.5), child: pw.Text('${r.container} · ${r.volume}', style: const pw.TextStyle(fontSize: 7))),
                 pw.Padding(padding: const pw.EdgeInsets.all(2.5), child: pw.Text(r.preservation, style: const pw.TextStyle(fontSize: 7))),
                 pw.Padding(padding: const pw.EdgeInsets.all(2.5), child: pw.Text(r.holdText, style: const pw.TextStyle(fontSize: 7))),
