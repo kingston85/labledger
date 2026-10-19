@@ -47,6 +47,14 @@ jobs:
           set -o pipefail
           flutter test 2>&1 | tee test.log
 
+      - name: Upload test documents
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-documents
+          path: test_output/
+          if-no-files-found: ignore
+
       - name: Build release APK
         shell: bash
         run: |
@@ -115,19 +123,37 @@ jobs:
             echo "::error title=Windows build failed::${msg}"
           fi
 
-      - name: Package zip
+      - name: Bundle Visual C++ runtime
         shell: pwsh
         run: |
-          $out = "LabLedger-Windows-${{ github.run_number }}"
+          # App-local copies so the app runs on PCs without the VC++ redistributable.
+          foreach ($d in @('msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll')) {
+            Copy-Item "C:\Windows\System32\$d" build\windows\x64\runner\Release\ -ErrorAction SilentlyContinue
+          }
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          $ver = (Select-String -Path pubspec.yaml -Pattern '^version:\s*([0-9.]+)').Matches[0].Groups[1].Value
+          & $iscc "/DAppVersion=$ver.${{ github.run_number }}" "/DSourceDir=$PWD\build\windows\x64\runner\Release" "/DOutputName=LabLedger-Setup-${{ github.run_number }}" installer\setup.iss
+          if ($LASTEXITCODE -ne 0) { echo "::error title=Installer build failed::ISCC exit $LASTEXITCODE"; exit 1 }
+          Get-ChildItem dist
+
+      - name: Package portable zip
+        shell: pwsh
+        run: |
+          $out = "LabLedger-Windows-Portable-${{ github.run_number }}"
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           Copy-Item -Recurse build\windows\x64\runner\Release\* $out
-          Set-Content -Path "$out\README.txt" -Value "LabLedger for Windows`r`n`r`nDouble-click LabLedger.exe to start. Keep all files in this folder together.`r`nIf Windows shows 'Windows protected your PC', click 'More info' then 'Run anyway'.`r`nYour data is saved in %APPDATA%\LabLedger\LabLedger."
-          Compress-Archive -Path $out -DestinationPath "$out.zip"
+          Set-Content -Path "$out\README.txt" -Value "LabLedger for Windows (portable)`r`n`r`nDouble-click LabLedger.exe to start. Keep all files in this folder together.`r`nTo install properly with shortcuts and an uninstaller, use LabLedger-Setup.exe instead.`r`nYour data is saved in %APPDATA%\LabLedger\LabLedger."
+          Compress-Archive -Path $out -DestinationPath "dist\$out.zip"
 
       - uses: actions/upload-artifact@v4
         with:
           name: LabLedger-windows
-          path: LabLedger-Windows-${{ github.run_number }}.zip
+          path: dist/*
 
   release:
     needs: [build, windows]
@@ -146,7 +172,7 @@ jobs:
           name: LabLedger build ${{ github.run_number }}
           body: |
             Android: download the APK on your phone and open it (allow "Install unknown apps" for your browser).
-            Windows: download the zip, extract it, and run LabLedger.exe. On the first run choose "More info" then "Run anyway".
+            Windows: download LabLedger-Setup and run it, accept the licence and click Install. If SmartScreen appears, choose "More info" then "Run anyway". A portable zip is also attached.
             Commit: ${{ github.sha }}
           files: dist/*
           make_latest: true

@@ -65,6 +65,8 @@ class AppState extends ChangeNotifier {
   final List<CalibrationRun> runs = [];
   final List<QcCheck> qc = [];
   final List<ControlChart> charts = [];
+  final List<Instrument> instruments = [];
+  final List<Reagent> reagents = [];
   bool hasDemo = false;
 
   bool _loaded = false;
@@ -116,6 +118,8 @@ class AppState extends ChangeNotifier {
         'runs': [for (final r in runs) r.toJson()],
         'qc': [for (final q in qc) q.toJson()],
         'charts': [for (final c in charts) c.toJson()],
+        'instruments': [for (final i in instruments) i.toJson()],
+        'reagents': [for (final r in reagents) r.toJson()],
       };
 
   void _fromJson(Map<String, dynamic> j) {
@@ -137,6 +141,12 @@ class AppState extends ChangeNotifier {
     charts
       ..clear()
       ..addAll(list('charts').map(ControlChart.fromJson));
+    instruments
+      ..clear()
+      ..addAll(list('instruments').map(Instrument.fromJson));
+    reagents
+      ..clear()
+      ..addAll(list('reagents').map(Reagent.fromJson));
   }
 
   /// Replaces everything with the contents of a backup file.
@@ -162,6 +172,35 @@ class AppState extends ChangeNotifier {
       if (s.id == id) return s;
     }
     return null;
+  }
+
+  /// Register items needing attention: (title, detail, severity 2 = overdue/expired, 1 = soon).
+  List<(String, String, int)> get registerAlerts {
+    final out = <(String, String, int)>[];
+    for (final i in instruments.where((i) => i.inService)) {
+      for (final (what, due) in [('calibration', i.calibrationDue), ('service', i.serviceDue)]) {
+        if (due == null) continue;
+        final d = daysUntil(due);
+        if (d < 0) {
+          out.add((i.name, '${what[0].toUpperCase()}${what.substring(1)} overdue by ${-d} day${d == -1 ? '' : 's'}', 2));
+        } else if (d <= 14) {
+          out.add((i.name, '${what[0].toUpperCase()}${what.substring(1)} due in $d day${d == 1 ? '' : 's'}', 1));
+        }
+      }
+    }
+    for (final r in reagents) {
+      if (r.expiry != null) {
+        final d = daysUntil(r.expiry!);
+        if (d < 0) {
+          out.add((r.name, 'Expired ${shortDate(r.expiry!)}${r.lot.isEmpty ? '' : ' · lot ${r.lot}'}', 2));
+        } else if (d <= 30) {
+          out.add((r.name, 'Expires in $d day${d == 1 ? '' : 's'}${r.lot.isEmpty ? '' : ' · lot ${r.lot}'}', 1));
+        }
+      }
+      if (r.lowStock) out.add((r.name, 'Low stock: ${r.quantity} ${r.unit}', 1));
+    }
+    out.sort((a, b) => b.$3.compareTo(a.$3));
+    return out;
   }
 
   LimitSet? limitSetById(String? id) {
@@ -253,6 +292,8 @@ class AppState extends ChangeNotifier {
     runs.removeWhere((r) => r.notes.startsWith('Demo'));
     qc.removeWhere((q) => q.batch == 'DEMO');
     charts.removeWhere((c) => c.name.startsWith('Demo'));
+    instruments.removeWhere((i) => i.notes == 'Demo item');
+    reagents.removeWhere((r) => r.notes == 'Demo item');
     hasDemo = false;
     notifyListeners();
   }
@@ -290,6 +331,23 @@ class AppState extends ChangeNotifier {
       QcCheck(id: newId(), type: QcType.crm, parameter: 'Manganese (Mn)', batch: 'DEMO', values: [0.47, 0.50]),
     ]);
 
+    instruments.addAll([
+      Instrument(id: newId(), notes: 'Demo item', name: 'UV-Vis spectrophotometer', model: 'HACH DR6000', serial: 'DR6-1043', location: 'Instrument room',
+          lastCalibration: now.subtract(const Duration(days: 350)), calibrationDays: 365, lastService: now.subtract(const Duration(days: 200)), serviceDays: 180),
+      Instrument(id: newId(), notes: 'Demo item', name: 'pH / conductivity meter', model: 'HQ40d multi', serial: 'HQ-5521', location: 'Field kit',
+          lastCalibration: now.subtract(const Duration(days: 8)), calibrationDays: 7),
+      Instrument(id: newId(), notes: 'Demo item', name: 'Turbidity meter', model: '2100Q', serial: 'TB-2207', location: 'Field kit',
+          lastCalibration: now.subtract(const Duration(days: 40)), calibrationDays: 90),
+      Instrument(id: newId(), notes: 'Demo item', name: 'Analytical balance', model: 'AS 220.R2', serial: 'BAL-0081', location: 'Weighing room',
+          lastCalibration: now.subtract(const Duration(days: 120)), calibrationDays: 365),
+    ]);
+    reagents.addAll([
+      Reagent(id: newId(), notes: 'Demo item', name: 'Iron standard 1000 mg/L', kind: ReagentKind.standard, lot: 'FE-23118', supplier: 'Merck', expiry: now.add(const Duration(days: 21)), quantity: 80, unit: 'mL', minStock: 50),
+      Reagent(id: newId(), notes: 'Demo item', name: 'FerroVer iron reagent pillows', lot: 'A3071', supplier: 'HACH', expiry: now.add(const Duration(days: 240)), quantity: 40, unit: 'pillows', minStock: 50),
+      Reagent(id: newId(), notes: 'Demo item', name: 'pH buffer 7.00', lot: 'B7-0412', supplier: 'HACH', opened: now.subtract(const Duration(days: 60)), expiry: now.subtract(const Duration(days: 3)), quantity: 250, unit: 'mL'),
+      Reagent(id: newId(), notes: 'Demo item', name: 'Nitric acid 65% (trace metal)', lot: 'HN-5590', supplier: 'Sigma', expiry: now.add(const Duration(days: 600)), quantity: 1.5, unit: 'L', minStock: 0.5),
+      Reagent(id: newId(), notes: 'Demo item', name: 'Drinking-water CRM (metals)', kind: ReagentKind.crm, lot: 'CRM-TMDW-B', supplier: 'HPS', expiry: now.add(const Duration(days: 300)), quantity: 2, unit: 'bottles', minStock: 1),
+    ]);
     final pts = <ControlPoint>[];
     for (var i = 0; i < 24; i++) {
       // Box-Muller normal noise around 2.00 mg/L, sd 0.04, with a late upward drift.

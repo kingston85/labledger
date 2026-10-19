@@ -517,3 +517,144 @@ int? codeSeq(String code) {
 
 /// True when a code marks a control sample ("KR-C-SW-004", "GR-C-SL-001").
 bool codeLooksControl(String code) => RegExp(r'(^|-)C(-|$)').hasMatch(code.toUpperCase());
+
+// ---------------------------------------------------------------------------
+// Lab register: instruments and reagents / standards
+// ---------------------------------------------------------------------------
+
+class Instrument {
+  final String id;
+  String name;
+  String model;
+  String serial;
+  String location;
+  DateTime? lastCalibration;
+  int calibrationDays; // interval; 0 = not scheduled
+  DateTime? lastService;
+  int serviceDays;
+  bool inService;
+  String notes;
+
+  Instrument({
+    required this.id,
+    required this.name,
+    this.model = '',
+    this.serial = '',
+    this.location = '',
+    this.lastCalibration,
+    this.calibrationDays = 365,
+    this.lastService,
+    this.serviceDays = 0,
+    this.inService = true,
+    this.notes = '',
+  });
+
+  DateTime? get calibrationDue => lastCalibration == null || calibrationDays <= 0 ? null : lastCalibration!.add(Duration(days: calibrationDays));
+  DateTime? get serviceDue => lastService == null || serviceDays <= 0 ? null : lastService!.add(Duration(days: serviceDays));
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'model': model,
+        'serial': serial,
+        'location': location,
+        'lastCalibration': lastCalibration?.toIso8601String(),
+        'calibrationDays': calibrationDays,
+        'lastService': lastService?.toIso8601String(),
+        'serviceDays': serviceDays,
+        'inService': inService,
+        'notes': notes,
+      };
+
+  factory Instrument.fromJson(Map<String, dynamic> j) => Instrument(
+        id: j['id'] as String,
+        name: j['name'] as String? ?? '',
+        model: j['model'] as String? ?? '',
+        serial: j['serial'] as String? ?? '',
+        location: j['location'] as String? ?? '',
+        lastCalibration: _tn(j['lastCalibration']),
+        calibrationDays: (j['calibrationDays'] as num?)?.toInt() ?? 365,
+        lastService: _tn(j['lastService']),
+        serviceDays: (j['serviceDays'] as num?)?.toInt() ?? 0,
+        inService: j['inService'] as bool? ?? true,
+        notes: j['notes'] as String? ?? '',
+      );
+}
+
+enum ReagentKind { reagent, standard, crm, consumable }
+
+extension ReagentKindX on ReagentKind {
+  String get label => const ['Reagent', 'Standard', 'CRM / reference', 'Consumable'][index];
+}
+
+class Reagent {
+  final String id;
+  String name;
+  ReagentKind kind;
+  String lot;
+  String supplier;
+  String location;
+  DateTime? received;
+  DateTime? opened;
+  DateTime? expiry;
+  double? quantity;
+  String unit;
+  double? minStock; // reorder level
+  String notes;
+
+  Reagent({
+    required this.id,
+    required this.name,
+    this.kind = ReagentKind.reagent,
+    this.lot = '',
+    this.supplier = '',
+    this.location = '',
+    this.received,
+    this.opened,
+    this.expiry,
+    this.quantity,
+    this.unit = '',
+    this.minStock,
+    this.notes = '',
+  });
+
+  bool get lowStock => quantity != null && minStock != null && quantity! <= minStock!;
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'kind': kind.name,
+        'lot': lot,
+        'supplier': supplier,
+        'location': location,
+        'received': received?.toIso8601String(),
+        'opened': opened?.toIso8601String(),
+        'expiry': expiry?.toIso8601String(),
+        'quantity': quantity,
+        'unit': unit,
+        'minStock': minStock,
+        'notes': notes,
+      };
+
+  factory Reagent.fromJson(Map<String, dynamic> j) => Reagent(
+        id: j['id'] as String,
+        name: j['name'] as String? ?? '',
+        kind: _enum(ReagentKind.values, j['kind'], ReagentKind.reagent),
+        lot: j['lot'] as String? ?? '',
+        supplier: j['supplier'] as String? ?? '',
+        location: j['location'] as String? ?? '',
+        received: _tn(j['received']),
+        opened: _tn(j['opened']),
+        expiry: _tn(j['expiry']),
+        quantity: _d(j['quantity']),
+        unit: j['unit'] as String? ?? '',
+        minStock: _d(j['minStock']),
+        notes: j['notes'] as String? ?? '',
+      );
+}
+
+/// Days from today to [d] (negative = past).
+int daysUntil(DateTime d) {
+  final n = DateTime.now();
+  return DateTime(d.year, d.month, d.day).difference(DateTime(n.year, n.month, n.day)).inDays;
+}

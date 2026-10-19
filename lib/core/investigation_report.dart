@@ -8,6 +8,7 @@ import 'package:pdf/widgets.dart' as pw;
 import '../data/app_state.dart';
 import '../data/models.dart';
 import 'guidelines.dart';
+import 'indices.dart';
 import 'investigation.dart';
 import 'report.dart';
 import 'utm.dart';
@@ -129,7 +130,7 @@ class InvestigationReports {
     // Findings first, as in an executive summary.
     for (final g in groups) {
       content.add(h('Key findings · ${g.title}'));
-      for (final line in writeFindings(g)) {
+      for (final line in allFindings(g)) {
         content.add(pw.Padding(
           padding: const pw.EdgeInsets.only(bottom: 3),
           child: pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
@@ -245,6 +246,60 @@ class InvestigationReports {
       }
     }
 
+    // Pollution indices.
+    for (final g in groups) {
+      final idx = computeIndices(g);
+      String f(Indexed? x) => x == null ? '—' : '${x.value.toStringAsFixed(x.value.abs() >= 100 ? 0 : 1)} ${x.cls}';
+      if (!g.solid) {
+        if (!idx.any((e) => e.wqi != null || e.hpi != null)) continue;
+        content.add(h('Pollution indices · ${g.title}'));
+        content.add(table(
+          ['Sample', 'WQI', 'HPI', 'HEI', 'Contamination index', 'Nemerow'],
+          [for (final e in idx) [e.sample.isControl ? '${e.sample.code} (control)' : e.sample.code, f(e.wqi), f(e.hpi), f(e.hei), f(e.cd), f(e.nemerow)]],
+          shade: (r, col) => col > 0 && [idx[r].wqi, idx[r].hpi, idx[r].hei, idx[r].cd, idx[r].nemerow][col - 1]?.severity == 4 ? _badBg : null,
+          widths: {0: const pw.FixedColumnWidth(90)},
+        ));
+        content.add(pw.Padding(
+          padding: const pw.EdgeInsets.only(top: 3),
+          child: pw.Text(
+              'WQI: weighted arithmetic index (≤25 excellent, 26–50 good, 51–75 poor, 76–100 very poor, >100 unsuitable). HPI critical value 100. '
+              'HEI <10 low, 10–20 medium, >20 high. Contamination index <1 low, 1–3 medium, >3 high. Nemerow ≤0.7 clean … >3 heavy. Non-detects at half the detection limit.',
+              style: const pw.TextStyle(fontSize: 7, color: _dim)),
+        ));
+      } else if (g.controls.isNotEmpty) {
+        final imp = idx.where((e) => !e.sample.isControl).toList();
+        if (imp.isEmpty) continue;
+        content.add(h('Pollution indices · ${g.title}'));
+        content.add(table(
+          ['Sample', 'PLI', 'Degree of contamination', 'Ecological risk RI'],
+          [for (final e in imp) [e.sample.code, f(e.pli), f(e.cdeg), f(e.ri)]],
+          widths: {0: const pw.FixedColumnWidth(90)},
+        ));
+        final metals = g.parameters.where((p) => imp.any((e) => e.igeo.containsKey(p))).toList();
+        for (var start = 0; start < imp.length; start += 9) {
+          final chunk = imp.sublist(start, math.min(start + 9, imp.length));
+          content.add(h('Geo-accumulation index (Igeo) · ${g.title}'));
+          content.add(table(
+            ['Parameter', for (final e in chunk) e.sample.code],
+            [for (final p in metals) [p, for (final e in chunk) e.igeo[p] == null ? '—' : e.igeo[p]!.toStringAsFixed(2)]],
+            shade: (r, col) {
+              if (col == 0) return null;
+              final v = chunk[col - 1].igeo[metals[r]];
+              return v == null ? null : _cfColor(v <= 0 ? 0.5 : (v <= 2 ? 2 : (v <= 3 ? 4 : 7)));
+            },
+            widths: {0: const pw.FixedColumnWidth(118)},
+          ));
+        }
+        content.add(pw.Padding(
+          padding: const pw.EdgeInsets.only(top: 3),
+          child: pw.Text(
+              'Background = control sample mean. Igeo = log2(Cn/1.5Bn): ≤0 unpolluted, 0–1 unpolluted–moderate, 1–2 moderate, 2–3 moderate–heavy, 3–4 heavy, 4–5 heavy–extreme, >5 extreme. '
+              'RI = Σ Tr·CF (Håkanson): <150 low, 150–300 moderate, 300–600 considerable, ≥600 very high.',
+              style: const pw.TextStyle(fontSize: 7, color: _dim)),
+        ));
+      }
+    }
+
     content.add(h('Quality assurance / quality control'));
     final qaLines = <String>[
       if (withReps.isNotEmpty)
@@ -310,6 +365,134 @@ class InvestigationReports {
         pw.Text('Page ${ctx.pageNumber} of ${ctx.pagesCount}', style: pw.TextStyle(font: mono, fontSize: 7, color: _dim)),
       ]),
       build: (_) => content,
+    ));
+    return doc.save();
+  }
+
+  /// Blank-ready chain-of-custody / sample submission form for a project.
+  static Future<Uint8List> cocSheet(AppState app, String project, List<Sample> samples) async {
+    final regular = pw.Font.ttf(await rootBundle.load('assets/fonts/Inter-Regular.ttf'));
+    final bold = pw.Font.ttf(await rootBundle.load('assets/fonts/Inter-Bold.ttf'));
+    final st = app.settings;
+    final doc = pw.Document(title: 'Chain of custody: $project', author: st.labName, creator: 'LabLedger');
+    final list = [...samples]..sort((a, b) => a.collectedAt.compareTo(b.collectedAt));
+    pw.Widget box(String label, String value, {double flex = 1}) => pw.Expanded(
+          flex: (flex * 10).round(),
+          child: pw.Container(
+            padding: const pw.EdgeInsets.fromLTRB(5, 3, 5, 4),
+            decoration: pw.BoxDecoration(border: pw.Border.all(color: _line, width: 0.6)),
+            child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+              pw.Text(label, style: const pw.TextStyle(fontSize: 6.5, color: _dim)),
+              pw.SizedBox(height: 2),
+              pw.Text(value.isEmpty ? ' ' : value, style: const pw.TextStyle(fontSize: 9)),
+            ]),
+          ),
+        );
+    pw.Widget grid(List<String> headers, List<List<String>> rows, Map<int, pw.TableColumnWidth> widths, {double rowH = 20}) => pw.Table(
+          border: pw.TableBorder.all(color: _line, width: 0.6),
+          columnWidths: widths,
+          children: [
+            pw.TableRow(decoration: const pw.BoxDecoration(color: _panel), children: [
+              for (final h in headers)
+                pw.Padding(padding: const pw.EdgeInsets.all(3), child: pw.Text(h, style: pw.TextStyle(font: bold, fontSize: 7.2))),
+            ]),
+            for (final r in rows)
+              pw.TableRow(children: [
+                for (final c in r)
+                  pw.Container(
+                    constraints: pw.BoxConstraints(minHeight: rowH),
+                    padding: const pw.EdgeInsets.all(3),
+                    alignment: pw.Alignment.centerLeft,
+                    child: pw.Text(c, style: const pw.TextStyle(fontSize: 7.8)),
+                  ),
+              ]),
+          ],
+        );
+    final params = samples.expand((s) => s.results).map((r) => r.parameter).toSet().toList();
+    doc.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a4.landscape,
+      margin: const pw.EdgeInsets.fromLTRB(26, 22, 26, 20),
+      theme: pw.ThemeData.withFont(base: regular, bold: bold),
+      build: (ctx) => [
+        pw.Row(children: [
+          pw.Expanded(
+            child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+              pw.Text(st.labName, style: pw.TextStyle(font: bold, fontSize: 11)),
+              pw.Text('CHAIN OF CUSTODY & SAMPLE SUBMISSION FORM', style: pw.TextStyle(font: bold, fontSize: 13, color: _accent)),
+            ]),
+          ),
+          pw.Text('Form LL-COC-01', style: const pw.TextStyle(fontSize: 8, color: _dim)),
+        ]),
+        pw.SizedBox(height: 8),
+        pw.Row(children: [
+          box('Project / investigation', project, flex: 3),
+          box('Client / requested by', ''),
+          box('Sampling team leader', samples.map((s) => s.collector).where((x) => x.isNotEmpty).toSet().join(', ')),
+          box('Contact phone', ''),
+        ]),
+        pw.Row(children: [
+          box('Site / area', ''),
+          box('Sampling date(s)', list.isEmpty ? '' : (shortDate(list.first.collectedAt) == shortDate(list.last.collectedAt) ? shortDate(list.first.collectedAt) : '${shortDate(list.first.collectedAt)} – ${shortDate(list.last.collectedAt)}')),
+          box('Cooler temperature on dispatch (°C)', ''),
+          box('Turnaround', 'Normal  /  Urgent'),
+        ]),
+        pw.SizedBox(height: 8),
+        grid(
+          ['#', 'Sample code', 'Location / description', 'Matrix', 'Date', 'Time', 'Lat, Lon / UTM', 'Containers & preservation', 'Analyses requested', 'Remarks'],
+          [
+            for (var i = 0; i < list.length; i++)
+              [
+                '${i + 1}',
+                '${list[i].code}${list[i].isControl ? ' (C)' : ''}',
+                list[i].site,
+                list[i].matrix.label,
+                shortDate(list[i].collectedAt),
+                timeOfDay(list[i].collectedAt),
+                list[i].lat == null || list[i].lon == null ? '' : '${list[i].lat!.toStringAsFixed(5)}, ${list[i].lon!.toStringAsFixed(5)}',
+                list[i].preservation,
+                '',
+                '',
+              ],
+            for (var i = 0; i < 4; i++) ['${list.length + i + 1}', '', '', '', '', '', '', '', '', ''],
+          ],
+          {
+            0: const pw.FixedColumnWidth(16),
+            1: const pw.FixedColumnWidth(64),
+            2: const pw.FlexColumnWidth(2.4),
+            3: const pw.FixedColumnWidth(54),
+            4: const pw.FixedColumnWidth(52),
+            5: const pw.FixedColumnWidth(30),
+            6: const pw.FixedColumnWidth(78),
+            7: const pw.FlexColumnWidth(1.6),
+            8: const pw.FlexColumnWidth(1.6),
+            9: const pw.FlexColumnWidth(1.2),
+          },
+        ),
+        if (params.isNotEmpty) ...[
+          pw.SizedBox(height: 4),
+          pw.Text('Analysis suite for this investigation: ${params.join(', ')}.', style: const pw.TextStyle(fontSize: 7, color: _dim)),
+        ],
+        pw.SizedBox(height: 10),
+        pw.Text('CUSTODY TRANSFERS', style: pw.TextStyle(font: bold, fontSize: 8.5, color: _accent)),
+        pw.SizedBox(height: 4),
+        grid(
+          ['Relinquished by (name & signature)', 'Date', 'Time', 'Received by (name & signature)', 'Date', 'Time', 'Condition / seal / temperature'],
+          [for (var i = 0; i < 4; i++) ['', '', '', '', '', '', '']],
+          {1: const pw.FixedColumnWidth(56), 2: const pw.FixedColumnWidth(40), 4: const pw.FixedColumnWidth(56), 5: const pw.FixedColumnWidth(40)},
+          rowH: 24,
+        ),
+        pw.SizedBox(height: 10),
+        pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+          box('LAB USE · Received at lab (date / time)', ''),
+          box('Custody seals intact?   Yes / No', ''),
+          box('Temperature on receipt (°C)', ''),
+          box('Lab sample IDs assigned', ''),
+          box('Received by (lab)', ''),
+        ]),
+        pw.SizedBox(height: 6),
+        pw.Text('Keep samples cool (≤ 6 °C) and in the dark. Record every hand-over above. Metals: HNO3 to pH < 2. Nutrients: 4 °C, analyse within 48 h. '
+            'Microbiology: sterile bottles, analyse within 24 h.', style: const pw.TextStyle(fontSize: 6.8, color: _dim)),
+      ],
     ));
     return doc.save();
   }

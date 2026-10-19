@@ -22,3 +22,4 @@ key.properties
 .vscode/
 *.iml
 .DS_Store
+test_output/

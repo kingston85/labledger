@@ -1,0 +1,38 @@
+LABLEDGER - END USER LICENCE AGREEMENT
+
+Please read this agreement carefully before installing LabLedger.
+
+1. LICENCE
+LabLedger is provided free of charge. You may install and use it on any
+number of computers for laboratory sample management, quality control,
+statistics and environmental investigation reporting.
+
+2. YOUR DATA
+LabLedger works offline. Samples, results, calibrations, QC records and the
+lab register are stored only on this computer, in your Windows user profile
+(%APPDATA%\LabLedger\LabLedger). Nothing is sent to the internet. You are
+responsible for keeping backups (More > Back up all data). Uninstalling
+LabLedger does not delete your data.
+
+3. STANDARDS AND CALCULATIONS
+Guideline values (including the Liberian water quality standards and WHO
+drinking-water guidelines), compliance checks, pollution indices,
+statistics and narrative findings are produced automatically from the data
+you enter and are provided for convenience. They must be verified against
+the current official standards and reviewed by a qualified analyst before
+they are used for regulatory, legal or health decisions.
+
+4. NO WARRANTY
+LabLedger is provided "as is", without warranty of any kind, express or
+implied, including fitness for a particular purpose.
+
+5. LIMITATION OF LIABILITY
+To the extent permitted by law, the authors are not liable for any loss or
+damage arising from the use of, or inability to use, this software or any
+report it produces.
+
+6. THIRD-PARTY COMPONENTS
+LabLedger is built with Flutter (BSD licence) and includes the Inter and
+JetBrains Mono typefaces (SIL Open Font Licence 1.1).
+
+By clicking "I accept the agreement" you agree to these terms.

@@ -9,6 +9,7 @@ import '../theme/app_theme.dart';
 import '../widgets/components.dart';
 import 'calibration_screen.dart';
 import 'investigation_screen.dart';
+import 'register_screen.dart';
 import 'qc_screen.dart';
 import 'sample_detail_screen.dart';
 import 'sample_form_screen.dart';
@@ -137,6 +138,29 @@ class HomeScreen extends StatelessWidget {
                     ],
                   ),
                 ),
+                if (app.registerAlerts.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  () {
+                    final al = app.registerAlerts;
+                    final urgent = al.first.$3 == 2;
+                    return LBCard(
+                      borderColor: (urgent ? c.poor : c.fair).withOpacity(0.5),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const RegisterScreen())),
+                      child: Row(children: [
+                        Icon(urgent ? Icons.error_rounded : Icons.schedule_rounded, color: urgent ? c.poor : c.fair),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text('Lab register: ${al.length} item${al.length == 1 ? '' : 's'} need attention', style: LBText.body(c.ink, weight: FontWeight.w700)),
+                            Text('${al.first.$1}: ${al.first.$2}', style: LBText.body(c.inkDim, size: 12.5), maxLines: 1, overflow: TextOverflow.ellipsis),
+                          ]),
+                        ),
+                        Icon(Icons.chevron_right_rounded, color: c.inkDim),
+                      ]),
+                    );
+                  }(),
+                ],
                 const SectionHeader('Sample pipeline'),
                 _Pipeline(samples: app.samples),
                 if (exceed.isNotEmpty) ...[

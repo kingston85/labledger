@@ -7,7 +7,11 @@ import '../data/models.dart';
 import '../theme/app_theme.dart';
 import '../widgets/components.dart';
 import '../widgets/share.dart';
+import '../core/docx.dart';
+import '../core/word_reports.dart';
+import 'import_screen.dart';
 import 'investigation_screen.dart';
+import 'register_screen.dart';
 import 'stats_screen.dart';
 
 class MoreScreen extends StatelessWidget {
@@ -37,6 +41,10 @@ class MoreScreen extends StatelessWidget {
         children: [
           tile(Icons.travel_explore_rounded, 'Investigations', 'Results matrix, standards, control comparison, findings, report',
               () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const InvestigationsScreen()))),
+          tile(Icons.precision_manufacturing_rounded, 'Lab register', 'Instrument calibration & service, reagent expiry & stock',
+              () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const RegisterScreen()))),
+          tile(Icons.upload_file_rounded, 'Import results', 'Paste a table or open a CSV from an instrument or report',
+              () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ImportScreen()))),
           tile(Icons.functions_rounded, 'Statistics', 'Descriptives, t-tests, ANOVA, Grubbs outlier test',
               () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const StatsScreen()))),
           tile(Icons.rule_folder_outlined, 'Limit sets', 'Liberian Class I, WHO drinking water and your own',
@@ -54,6 +62,14 @@ class MoreScreen extends StatelessWidget {
             }
             final bytes = await Reports.sampleReport(app, open);
             if (context.mounted) await shareBytes(context, 'LabLedger_reports.pdf', bytes, 'application/pdf');
+          }),
+          tile(Icons.description_rounded, 'Reports for open samples (Word)', 'Editable .docx, one section per sample', () async {
+            final open = app.samples.where((s) => s.status != SampleStatus.reported && s.results.isNotEmpty).toList();
+            if (open.isEmpty) {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No open samples with results.')));
+              return;
+            }
+            await shareBytes(context, 'LabLedger_reports.docx', WordReports.samples(app, open), docxMime);
           }),
           tile(Icons.backup_outlined, 'Back up all data', 'One file with every sample, curve and QC record',
               () => shareBackupFile(context, app.saveNow)),
@@ -84,7 +100,7 @@ class MoreScreen extends StatelessWidget {
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Demo data removed.')));
             }, color: c.fair),
           const SizedBox(height: 16),
-          Center(child: Text('LabLedger 0.3 · data stays on this device', style: LBText.body(c.inkDim, size: 12))),
+          Center(child: Text('LabLedger 0.4 · data stays on this device', style: LBText.body(c.inkDim, size: 12))),
         ],
       ),
     );

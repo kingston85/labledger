@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../core/guidelines.dart';
+import '../core/docx.dart';
 import '../core/report.dart';
+import '../core/word_reports.dart';
 import '../core/stats.dart';
 import '../core/utm.dart';
 import '../data/app_state.dart';
@@ -45,6 +47,9 @@ class SampleDetailScreen extends StatelessWidget {
             onSelected: (v) async {
               if (v == 'edit') {
                 Navigator.of(context).push(MaterialPageRoute(builder: (_) => SampleFormScreen(sample: s)));
+              } else if (v == 'docx') {
+                final bytes = WordReports.samples(app, [s]);
+                if (context.mounted) await shareBytes(context, '${safeName(s.code)}_report.docx', bytes, docxMime, subject: 'Lab report ${s.code}');
               } else if (v == 'csv') {
                 shareText(context, '${safeName(s.code)}.csv', Reports.resultsCsv(app, [s]), 'text/csv');
               } else if (v == 'delete') {
@@ -67,6 +72,7 @@ class SampleDetailScreen extends StatelessWidget {
             },
             itemBuilder: (_) => const [
               PopupMenuItem(value: 'edit', child: Text('Edit details')),
+              PopupMenuItem(value: 'docx', child: Text('Report · Word (.docx)')),
               PopupMenuItem(value: 'csv', child: Text('Export CSV')),
               PopupMenuItem(value: 'delete', child: Text('Delete sample')),
             ],

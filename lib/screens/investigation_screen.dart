@@ -4,7 +4,10 @@ import 'package:flutter/material.dart';
 
 import '../core/guidelines.dart';
 import '../core/investigation.dart';
+import '../core/docx.dart';
+import '../core/indices.dart';
 import '../core/investigation_report.dart';
+import '../core/word_reports.dart';
 import '../core/report.dart';
 import '../core/utm.dart';
 import '../data/app_state.dart';
@@ -14,6 +17,8 @@ import '../widgets/components.dart';
 import '../widgets/inputs.dart';
 import '../widgets/plot.dart';
 import '../widgets/share.dart';
+import 'import_screen.dart';
+import 'indices_view.dart';
 import 'sample_detail_screen.dart';
 
 /// All projects / field investigations.
@@ -98,7 +103,7 @@ class _ProjectTile extends StatelessWidget {
   }
 }
 
-enum _View { findings, matrix, profile, control, map }
+enum _View { findings, matrix, profile, control, indices, map }
 
 class InvestigationScreen extends StatefulWidget {
   final String project;
@@ -129,20 +134,39 @@ class _InvestigationScreenState extends State<InvestigationScreen> {
         title: Text(widget.project, overflow: TextOverflow.ellipsis),
         actions: [
           IconButton(
-            tooltip: 'Investigation report (PDF)',
-            icon: const Icon(Icons.picture_as_pdf_rounded),
-            onPressed: () async {
-              final bytes = await InvestigationReports.pdf(app, widget.project, samples);
-              if (context.mounted) {
-                await shareBytes(context, '${safeName(widget.project)}_investigation.pdf', bytes, 'application/pdf',
-                    subject: 'Investigation report: ${widget.project}');
+            tooltip: 'Import results',
+            icon: const Icon(Icons.upload_file_rounded),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ImportScreen(project: widget.project))),
+          ),
+          PopupMenuButton<String>(
+            tooltip: 'Export',
+            icon: const Icon(Icons.ios_share_rounded),
+            onSelected: (v) async {
+              final name = safeName(widget.project);
+              switch (v) {
+                case 'pdf':
+                  final bytes = await InvestigationReports.pdf(app, widget.project, samples);
+                  if (context.mounted) await shareBytes(context, '${name}_investigation.pdf', bytes, 'application/pdf', subject: 'Investigation report: ${widget.project}');
+                  break;
+                case 'docx':
+                  final bytes = WordReports.investigation(app, widget.project, samples);
+                  if (context.mounted) await shareBytes(context, '${name}_investigation.docx', bytes, docxMime, subject: 'Investigation report: ${widget.project}');
+                  break;
+                case 'csv':
+                  shareText(context, '${name}_matrix.csv', InvestigationReports.matrixCsv(app, samples), 'text/csv');
+                  break;
+                case 'coc':
+                  final bytes = await InvestigationReports.cocSheet(app, widget.project, samples);
+                  if (context.mounted) await shareBytes(context, '${name}_chain_of_custody.pdf', bytes, 'application/pdf');
+                  break;
               }
             },
-          ),
-          IconButton(
-            tooltip: 'Results matrix (CSV)',
-            icon: const Icon(Icons.table_chart_rounded),
-            onPressed: () => shareText(context, '${safeName(widget.project)}_matrix.csv', InvestigationReports.matrixCsv(app, samples), 'text/csv'),
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'pdf', child: ListTile(leading: Icon(Icons.picture_as_pdf_rounded), title: Text('Report · PDF'), dense: true)),
+              PopupMenuItem(value: 'docx', child: ListTile(leading: Icon(Icons.description_rounded), title: Text('Report · Word (.docx)'), dense: true)),
+              PopupMenuItem(value: 'csv', child: ListTile(leading: Icon(Icons.table_chart_rounded), title: Text('Results matrix · CSV'), dense: true)),
+              PopupMenuItem(value: 'coc', child: ListTile(leading: Icon(Icons.assignment_rounded), title: Text('Chain-of-custody form · PDF'), dense: true)),
+            ],
           ),
         ],
       ),
@@ -169,6 +193,7 @@ class _InvestigationScreenState extends State<InvestigationScreen> {
               _View.matrix => 'Matrix',
               _View.profile => 'Profile',
               _View.control => 'Control',
+              _View.indices => 'Indices',
               _View.map => 'Map',
             },
             onChanged: (v) => setState(() => _view = v),
@@ -179,6 +204,7 @@ class _InvestigationScreenState extends State<InvestigationScreen> {
             _View.matrix => _matrix(context, g),
             _View.profile => _profile(context, g),
             _View.control => _control(context, g),
+            _View.indices => IndicesView(group: g),
             _View.map => _map(context, g),
           },
           const SizedBox(height: 10),
@@ -204,7 +230,7 @@ class _InvestigationScreenState extends State<InvestigationScreen> {
         }
       }
     }
-    final lines = writeFindings(g);
+    final lines = allFindings(g);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
