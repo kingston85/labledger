@@ -30,6 +30,9 @@ class _SampleFormScreenState extends State<SampleFormScreen> {
   final _north = TextEditingController();
   bool _utm = false;
   bool _control = false;
+  String? _clientId;
+  String? _requestId;
+  DateTime? _due;
   Matrix _matrix = Matrix.surfaceWater;
   SampleStatus _status = SampleStatus.collected;
   DateTime _collected = DateTime.now();
@@ -66,6 +69,9 @@ class _SampleFormScreenState extends State<SampleFormScreen> {
       _received = s.receivedAt;
       _limitSet = s.limitSetId ?? app.settings.defaultLimitSetId;
       _control = s.isControl;
+      _clientId = s.clientId;
+      _requestId = s.requestId;
+      _due = s.dueDate;
       final m = RegExp(r'^([A-Za-z0-9]+(?:-[A-Za-z])?)-').firstMatch(s.code);
       if (m != null) _sitePrefix.text = m.group(1)!.replaceAll(RegExp(r'-C$'), '');
     }
@@ -151,6 +157,9 @@ class _SampleFormScreenState extends State<SampleFormScreen> {
         status: _status,
         limitSetId: _limitSet,
         isControl: _control,
+        clientId: _clientId,
+        requestId: _requestId,
+        dueDate: _due,
       ));
       Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => SampleDetailScreen(sample: s)));
     } else {
@@ -170,6 +179,10 @@ class _SampleFormScreenState extends State<SampleFormScreen> {
         s.status = _status;
         s.limitSetId = _limitSet;
         s.isControl = _control;
+        s.clientId = _clientId;
+        s.requestId = _requestId;
+        s.dueDate = _due;
+        app.log('update', 'Sample', s.code, 'details edited');
       });
       Navigator.pop(context);
     }
@@ -350,6 +363,49 @@ class _SampleFormScreenState extends State<SampleFormScreen> {
               for (final p in _presPresets)
                 ActionChip(label: Text(p), onPressed: () => setState(() => _pres.text = p), visualDensity: VisualDensity.compact),
             ],
+          ),
+          const SectionHeader('Client & request'),
+          DropdownButtonFormField<String?>(
+            value: app.client(_clientId) == null ? null : _clientId,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Client'),
+            items: [
+              const DropdownMenuItem<String?>(value: null, child: Text('— none —')),
+              for (final cl in [...app.clients]..sort((a, b) => a.name.compareTo(b.name))) DropdownMenuItem<String?>(value: cl.id, child: Text(cl.name, overflow: TextOverflow.ellipsis)),
+            ],
+            onChanged: (v) => setState(() {
+              _clientId = v;
+              if (_requestId != null && app.request(_requestId)?.clientId != v) _requestId = null;
+            }),
+          ),
+          gap(),
+          DropdownButtonFormField<String?>(
+            value: app.request(_requestId) == null ? null : _requestId,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Analysis request'),
+            items: [
+              const DropdownMenuItem<String?>(value: null, child: Text('— none —')),
+              for (final r in app.requests.where((r) => _clientId == null || r.clientId == _clientId))
+                DropdownMenuItem<String?>(value: r.id, child: Text('${r.number}${r.project.isEmpty ? '' : ' · ${r.project}'}', overflow: TextOverflow.ellipsis)),
+            ],
+            onChanged: (v) => setState(() {
+              _requestId = v;
+              final r = app.request(v);
+              if (r != null) {
+                _clientId = r.clientId;
+                _due ??= r.dueDate;
+                if (_project.text.trim().isEmpty) _project.text = r.project;
+              }
+            }),
+          ),
+          gap(),
+          _DateRow(
+            label: 'Results due',
+            value: _due == null ? 'No due date — tap to set' : dateTime(_due!),
+            onTap: () async {
+              final d = await _pickDateTime(_due ?? DateTime.now().add(const Duration(days: 10)));
+              if (d != null) setState(() => _due = d);
+            },
           ),
           const SectionHeader('Assessment'),
           DropdownButtonFormField<String>(

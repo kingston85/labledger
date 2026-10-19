@@ -107,6 +107,10 @@ class Result {
   String note;
   String source; // 'manual' or 'calibration'
   List<double> replicates; // individual readings (e.g. triplicate); value holds their mean
+  String enteredBy;
+  String approvedBy;
+  DateTime? approvedAt;
+  bool get approved => approvedAt != null;
 
   Result({
     required this.id,
@@ -122,6 +126,9 @@ class Result {
     this.note = '',
     this.source = 'manual',
     List<double>? replicates,
+    this.enteredBy = '',
+    this.approvedBy = '',
+    this.approvedAt,
   })  : date = date ?? DateTime.now(),
         replicates = replicates ?? [];
 
@@ -139,6 +146,9 @@ class Result {
         'note': note,
         'source': source,
         'replicates': replicates,
+        'enteredBy': enteredBy,
+        'approvedBy': approvedBy,
+        'approvedAt': approvedAt?.toIso8601String(),
       };
 
   factory Result.fromJson(Map<String, dynamic> j) => Result(
@@ -155,6 +165,9 @@ class Result {
         note: j['note'] as String? ?? '',
         source: j['source'] as String? ?? 'manual',
         replicates: [for (final v in (j['replicates'] as List? ?? const [])) (v as num).toDouble()],
+        enteredBy: j['enteredBy'] as String? ?? '',
+        approvedBy: j['approvedBy'] as String? ?? '',
+        approvedAt: _tn(j['approvedAt']),
       );
 }
 
@@ -171,9 +184,25 @@ class Sample {
   String collector;
   String preservation;
   String notes;
-  SampleStatus status;
+  SampleStatus _status;
   String? limitSetId;
   bool isControl; // upstream / background reference sample
+  String? clientId;
+  String? requestId;
+  DateTime? dueDate;
+  DateTime? reportedAt;
+
+  SampleStatus get status => _status;
+  set status(SampleStatus v) {
+    if (v == SampleStatus.reported && _status != SampleStatus.reported) reportedAt ??= DateTime.now();
+    if (v.index < SampleStatus.reported.index) reportedAt = null;
+    _status = v;
+  }
+
+  /// Days from receipt to report (turnaround time), if reported.
+  double? get turnaroundDays =>
+      receivedAt == null || reportedAt == null ? null : reportedAt!.difference(receivedAt!).inMinutes / 1440.0;
+  bool get overdue => dueDate != null && status.index < SampleStatus.reported.index && DateTime.now().isAfter(dueDate!);
   final List<Custody> custody;
   final List<Result> results;
 
@@ -190,12 +219,17 @@ class Sample {
     this.collector = '',
     this.preservation = '',
     this.notes = '',
-    this.status = SampleStatus.collected,
+    SampleStatus status = SampleStatus.collected,
     this.limitSetId,
     this.isControl = false,
+    this.clientId,
+    this.requestId,
+    this.dueDate,
+    this.reportedAt,
     List<Custody>? custody,
     List<Result>? results,
-  })  : collectedAt = collectedAt ?? DateTime.now(),
+  })  : _status = status,
+        collectedAt = collectedAt ?? DateTime.now(),
         custody = custody ?? [],
         results = results ?? [];
 
@@ -215,6 +249,10 @@ class Sample {
         'status': status.name,
         'limitSetId': limitSetId,
         'isControl': isControl,
+        'clientId': clientId,
+        'requestId': requestId,
+        'dueDate': dueDate?.toIso8601String(),
+        'reportedAt': reportedAt?.toIso8601String(),
         'custody': [for (final c in custody) c.toJson()],
         'results': [for (final r in results) r.toJson()],
       };
@@ -235,6 +273,10 @@ class Sample {
         status: _enum(SampleStatus.values, j['status'], SampleStatus.collected),
         limitSetId: j['limitSetId'] as String?,
         isControl: j['isControl'] as bool? ?? false,
+        clientId: j['clientId'] as String?,
+        requestId: j['requestId'] as String?,
+        dueDate: _tn(j['dueDate']),
+        reportedAt: _tn(j['reportedAt']),
         custody: [for (final c in (j['custody'] as List? ?? const [])) Custody.fromJson((c as Map).cast<String, dynamic>())],
         results: [for (final r in (j['results'] as List? ?? const [])) Result.fromJson((r as Map).cast<String, dynamic>())],
       );
@@ -657,4 +699,378 @@ class Reagent {
 int daysUntil(DateTime d) {
   final n = DateTime.now();
   return DateTime(d.year, d.month, d.day).difference(DateTime(n.year, n.month, n.day)).inDays;
+}
+
+// ---------------------------------------------------------------------------
+// Users and audit trail
+// ---------------------------------------------------------------------------
+
+enum Role { admin, reviewer, analyst, viewer }
+
+extension RoleX on Role {
+  String get label => const ['Administrator', 'Reviewer / approver', 'Analyst', 'Viewer (read-only)'][index];
+  String get blurb => const [
+        'Everything, including users, settings and deleting records',
+        'Enter results and approve them for reporting',
+        'Register samples and enter results; cannot approve',
+        'Can look and export, cannot change anything',
+      ][index];
+}
+
+class AppUser {
+  final String id;
+  String name;
+  Role role;
+  String salt;
+  String pinHash;
+  bool active;
+  DateTime created;
+  DateTime? lastLogin;
+
+  AppUser({required this.id, required this.name, this.role = Role.analyst, this.salt = '', this.pinHash = '', this.active = true, DateTime? created, this.lastLogin})
+      : created = created ?? DateTime.now();
+
+  String get initials {
+    final p = name.trim().split(RegExp(r'\s+')).where((x) => x.isNotEmpty).toList();
+    if (p.isEmpty) return '?';
+    return (p.first[0] + (p.length > 1 ? p.last[0] : '')).toUpperCase();
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'role': role.name,
+        'salt': salt,
+        'pinHash': pinHash,
+        'active': active,
+        'created': created.toIso8601String(),
+        'lastLogin': lastLogin?.toIso8601String(),
+      };
+
+  factory AppUser.fromJson(Map<String, dynamic> j) => AppUser(
+        id: j['id'] as String,
+        name: j['name'] as String? ?? '',
+        role: _enum(Role.values, j['role'], Role.analyst),
+        salt: j['salt'] as String? ?? '',
+        pinHash: j['pinHash'] as String? ?? '',
+        active: j['active'] as bool? ?? true,
+        created: _tn(j['created']),
+        lastLogin: _tn(j['lastLogin']),
+      );
+}
+
+class AuditEntry {
+  final DateTime time;
+  final String user;
+  final String action; // create, update, delete, approve, login, export, import …
+  final String entity; // Sample, Result, Invoice …
+  final String ref; // code / number
+  final String detail;
+  const AuditEntry(this.time, this.user, this.action, this.entity, this.ref, this.detail);
+
+  Map<String, dynamic> toJson() => {'t': time.toIso8601String(), 'u': user, 'a': action, 'e': entity, 'r': ref, 'd': detail};
+  factory AuditEntry.fromJson(Map<String, dynamic> j) =>
+      AuditEntry(_t(j['t']), j['u'] as String? ?? '', j['a'] as String? ?? '', j['e'] as String? ?? '', j['r'] as String? ?? '', j['d'] as String? ?? '');
+}
+
+// ---------------------------------------------------------------------------
+// Clients, price list, requests and invoices
+// ---------------------------------------------------------------------------
+
+enum ClientType { company, government, ngo, individual, internal }
+
+extension ClientTypeX on ClientType {
+  String get label => const ['Company', 'Government', 'NGO / project', 'Individual', 'Internal'][index];
+}
+
+class Client {
+  final String id;
+  String name;
+  ClientType type;
+  String contact;
+  String phone;
+  String email;
+  String address;
+  String taxId;
+  String notes;
+  DateTime created;
+
+  Client({required this.id, required this.name, this.type = ClientType.company, this.contact = '', this.phone = '', this.email = '', this.address = '', this.taxId = '', this.notes = '', DateTime? created})
+      : created = created ?? DateTime.now();
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'type': type.name,
+        'contact': contact,
+        'phone': phone,
+        'email': email,
+        'address': address,
+        'taxId': taxId,
+        'notes': notes,
+        'created': created.toIso8601String(),
+      };
+
+  factory Client.fromJson(Map<String, dynamic> j) => Client(
+        id: j['id'] as String,
+        name: j['name'] as String? ?? '',
+        type: _enum(ClientType.values, j['type'], ClientType.company),
+        contact: j['contact'] as String? ?? '',
+        phone: j['phone'] as String? ?? '',
+        email: j['email'] as String? ?? '',
+        address: j['address'] as String? ?? '',
+        taxId: j['taxId'] as String? ?? '',
+        notes: j['notes'] as String? ?? '',
+        created: _tn(j['created']),
+      );
+}
+
+/// A test or package on the lab's price list.
+class PriceItem {
+  final String id;
+  String code;
+  String name;
+  String category;
+  double price;
+  int turnaroundDays;
+  List<String> parameters; // parameters covered (for packages)
+  bool active;
+  String notes;
+
+  PriceItem({required this.id, required this.code, required this.name, this.category = '', this.price = 0, this.turnaroundDays = 7, List<String>? parameters, this.active = true, this.notes = ''})
+      : parameters = parameters ?? [];
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'code': code,
+        'name': name,
+        'category': category,
+        'price': price,
+        'turnaroundDays': turnaroundDays,
+        'parameters': parameters,
+        'active': active,
+        'notes': notes,
+      };
+
+  factory PriceItem.fromJson(Map<String, dynamic> j) => PriceItem(
+        id: j['id'] as String,
+        code: j['code'] as String? ?? '',
+        name: j['name'] as String? ?? '',
+        category: j['category'] as String? ?? '',
+        price: _d(j['price']) ?? 0,
+        turnaroundDays: (j['turnaroundDays'] as num?)?.toInt() ?? 7,
+        parameters: [for (final p in (j['parameters'] as List? ?? const [])) p as String],
+        active: j['active'] as bool? ?? true,
+        notes: j['notes'] as String? ?? '',
+      );
+}
+
+class DocLine {
+  String description;
+  double qty;
+  double unitPrice;
+  String? priceItemId;
+  DocLine({required this.description, this.qty = 1, this.unitPrice = 0, this.priceItemId});
+  double get total => qty * unitPrice;
+
+  Map<String, dynamic> toJson() => {'description': description, 'qty': qty, 'unitPrice': unitPrice, 'priceItemId': priceItemId};
+  factory DocLine.fromJson(Map<String, dynamic> j) =>
+      DocLine(description: j['description'] as String? ?? '', qty: _d(j['qty']) ?? 1, unitPrice: _d(j['unitPrice']) ?? 0, priceItemId: j['priceItemId'] as String?);
+}
+
+/// Shared money arithmetic for quotations and invoices.
+mixin Priced {
+  List<DocLine> get lines;
+  double get discountPct;
+  double get taxPct;
+  double get subtotal => lines.fold(0.0, (a, l) => a + l.total);
+  double get discount => _round(subtotal * discountPct / 100);
+  double get tax => _round((subtotal - discount) * taxPct / 100);
+  double get total => _round(subtotal - discount + tax);
+}
+
+double _round(double v) => (v * 100).roundToDouble() / 100;
+
+enum RequestStatus { quote, accepted, inProgress, completed, cancelled }
+
+extension RequestStatusX on RequestStatus {
+  String get label => const ['Quotation', 'Accepted', 'In progress', 'Completed', 'Cancelled'][index];
+}
+
+/// An analysis request / work order (starts life as a quotation).
+class LabRequest with Priced {
+  final String id;
+  String number;
+  String? clientId;
+  DateTime date;
+  DateTime? dueDate;
+  String project;
+  RequestStatus status;
+  @override
+  final List<DocLine> lines;
+  @override
+  double discountPct;
+  @override
+  double taxPct;
+  String notes;
+
+  LabRequest({
+    required this.id,
+    required this.number,
+    this.clientId,
+    DateTime? date,
+    this.dueDate,
+    this.project = '',
+    this.status = RequestStatus.quote,
+    List<DocLine>? lines,
+    this.discountPct = 0,
+    this.taxPct = 0,
+    this.notes = '',
+  })  : date = date ?? DateTime.now(),
+        lines = lines ?? [];
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'number': number,
+        'clientId': clientId,
+        'date': date.toIso8601String(),
+        'dueDate': dueDate?.toIso8601String(),
+        'project': project,
+        'status': status.name,
+        'lines': [for (final l in lines) l.toJson()],
+        'discountPct': discountPct,
+        'taxPct': taxPct,
+        'notes': notes,
+      };
+
+  factory LabRequest.fromJson(Map<String, dynamic> j) => LabRequest(
+        id: j['id'] as String,
+        number: j['number'] as String? ?? '',
+        clientId: j['clientId'] as String?,
+        date: _t(j['date']),
+        dueDate: _tn(j['dueDate']),
+        project: j['project'] as String? ?? '',
+        status: _enum(RequestStatus.values, j['status'], RequestStatus.quote),
+        lines: [for (final l in (j['lines'] as List? ?? const [])) DocLine.fromJson((l as Map).cast<String, dynamic>())],
+        discountPct: _d(j['discountPct']) ?? 0,
+        taxPct: _d(j['taxPct']) ?? 0,
+        notes: j['notes'] as String? ?? '',
+      );
+}
+
+class Payment {
+  final String id;
+  DateTime date;
+  double amount;
+  String method; // Cash, Bank transfer, Mobile money, Cheque
+  String reference;
+  String receiptNo;
+  Payment({required this.id, required this.amount, DateTime? date, this.method = 'Cash', this.reference = '', this.receiptNo = ''}) : date = date ?? DateTime.now();
+
+  Map<String, dynamic> toJson() => {'id': id, 'date': date.toIso8601String(), 'amount': amount, 'method': method, 'reference': reference, 'receiptNo': receiptNo};
+  factory Payment.fromJson(Map<String, dynamic> j) => Payment(
+        id: j['id'] as String,
+        date: _t(j['date']),
+        amount: _d(j['amount']) ?? 0,
+        method: j['method'] as String? ?? 'Cash',
+        reference: j['reference'] as String? ?? '',
+        receiptNo: j['receiptNo'] as String? ?? '',
+      );
+}
+
+enum InvoiceStatus { draft, unpaid, partial, paid, overdue, cancelled }
+
+extension InvoiceStatusX on InvoiceStatus {
+  String get label => const ['Draft', 'Unpaid', 'Part paid', 'Paid', 'Overdue', 'Cancelled'][index];
+}
+
+class Invoice with Priced {
+  final String id;
+  String number;
+  String? clientId;
+  String? requestId;
+  DateTime date;
+  DateTime dueDate;
+  @override
+  final List<DocLine> lines;
+  @override
+  double discountPct;
+  @override
+  double taxPct;
+  final List<Payment> payments;
+  String notes;
+  bool issued;
+  bool cancelled;
+
+  Invoice({
+    required this.id,
+    required this.number,
+    this.clientId,
+    this.requestId,
+    DateTime? date,
+    DateTime? dueDate,
+    List<DocLine>? lines,
+    this.discountPct = 0,
+    this.taxPct = 0,
+    List<Payment>? payments,
+    this.notes = '',
+    this.issued = true,
+    this.cancelled = false,
+  })  : date = date ?? DateTime.now(),
+        dueDate = dueDate ?? (date ?? DateTime.now()).add(const Duration(days: 30)),
+        lines = lines ?? [],
+        payments = payments ?? [];
+
+  double get paid => _round(payments.fold(0.0, (a, p) => a + p.amount));
+  double get balance => _round(total - paid);
+
+  InvoiceStatus get status {
+    if (cancelled) return InvoiceStatus.cancelled;
+    if (!issued) return InvoiceStatus.draft;
+    if (balance <= 0.004 && total > 0) return InvoiceStatus.paid;
+    if (DateTime.now().isAfter(dueDate)) return InvoiceStatus.overdue;
+    if (paid > 0) return InvoiceStatus.partial;
+    return InvoiceStatus.unpaid;
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'number': number,
+        'clientId': clientId,
+        'requestId': requestId,
+        'date': date.toIso8601String(),
+        'dueDate': dueDate.toIso8601String(),
+        'lines': [for (final l in lines) l.toJson()],
+        'discountPct': discountPct,
+        'taxPct': taxPct,
+        'payments': [for (final p in payments) p.toJson()],
+        'notes': notes,
+        'issued': issued,
+        'cancelled': cancelled,
+      };
+
+  factory Invoice.fromJson(Map<String, dynamic> j) => Invoice(
+        id: j['id'] as String,
+        number: j['number'] as String? ?? '',
+        clientId: j['clientId'] as String?,
+        requestId: j['requestId'] as String?,
+        date: _t(j['date']),
+        dueDate: _tn(j['dueDate']),
+        lines: [for (final l in (j['lines'] as List? ?? const [])) DocLine.fromJson((l as Map).cast<String, dynamic>())],
+        discountPct: _d(j['discountPct']) ?? 0,
+        taxPct: _d(j['taxPct']) ?? 0,
+        payments: [for (final p in (j['payments'] as List? ?? const [])) Payment.fromJson((p as Map).cast<String, dynamic>())],
+        notes: j['notes'] as String? ?? '',
+        issued: j['issued'] as bool? ?? true,
+        cancelled: j['cancelled'] as bool? ?? false,
+      );
+}
+
+String money(double v, String currency) {
+  final neg = v < 0;
+  final s = v.abs().toStringAsFixed(2);
+  final parts = s.split('.');
+  final whole = parts[0].replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (m) => ',');
+  final sym = switch (currency) { 'USD' => r'$', 'LRD' => r'L$', 'EUR' => '€', 'GBP' => '£', _ => '$currency ' };
+  return '${neg ? '-' : ''}$sym$whole.${parts[1]}';
 }

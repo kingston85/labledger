@@ -88,7 +88,8 @@ class Reports {
             pw.Expanded(
               child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
                 pw.Text(st.labName, style: pw.TextStyle(font: bold, fontSize: 11, color: _ink)),
-                pw.Text('Laboratory test report', style: const pw.TextStyle(fontSize: 9, color: _dim)),
+                pw.Text(app.needsApproval(s) ? 'Laboratory test report · DRAFT (results not yet approved)' : 'Laboratory test report',
+                    style: pw.TextStyle(fontSize: 9, color: app.needsApproval(s) ? _bad : _dim)),
               ]),
             ),
             pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.end, children: [
@@ -230,7 +231,12 @@ class Reports {
           pw.Row(children: [
             _sig('Analysed by', st.analyst, bold),
             pw.SizedBox(width: 24),
-            _sig('Reviewed / approved by', st.reviewer, bold),
+            _sig('Reviewed / approved by', () {
+              final a = s.results.where((r) => r.approved).toList();
+              if (a.isEmpty) return st.reviewer;
+              final last = a.map((r) => r.approvedAt!).reduce((x, y) => x.isAfter(y) ? x : y);
+              return '${a.map((r) => r.approvedBy).toSet().join(', ')} · ${shortDate(last)}';
+            }(), bold),
             pw.SizedBox(width: 24),
             _sig('Date', '', bold),
           ]),

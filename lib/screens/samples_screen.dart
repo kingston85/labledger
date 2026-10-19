@@ -6,6 +6,7 @@ import '../data/app_state.dart';
 import '../data/models.dart';
 import '../theme/app_theme.dart';
 import '../widgets/components.dart';
+import '../widgets/data_grid.dart';
 import '../widgets/share.dart';
 import 'sample_detail_screen.dart';
 import 'sample_form_screen.dart';
@@ -42,6 +43,7 @@ class _SamplesScreenState extends State<SamplesScreen> {
       return s.code.toLowerCase().contains(q) ||
           s.site.toLowerCase().contains(q) ||
           s.project.toLowerCase().contains(q) ||
+          (app.client(s.clientId)?.name.toLowerCase().contains(q) ?? false) ||
           s.results.any((r) => r.parameter.toLowerCase().contains(q));
     }).toList();
 
@@ -57,11 +59,13 @@ class _SamplesScreenState extends State<SamplesScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SampleFormScreen())),
-        icon: const Icon(Icons.add_rounded),
-        label: const Text('New sample'),
-      ),
+      floatingActionButton: !app.canEdit
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SampleFormScreen())),
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('New sample'),
+            ),
       body: Column(
         children: [
           Padding(
@@ -113,6 +117,48 @@ class _SamplesScreenState extends State<SamplesScreen> {
               ],
             ),
           ),
+          if (isWide(context))
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
+                child: DataGrid<Sample>(
+                  rows: list,
+                  onTap: (s) => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SampleDetailScreen(sample: s))),
+                  minWidth: 1000,
+                  initialSort: 5,
+                  initialAscending: false,
+                  empty: 'No samples match the filters.',
+                  columns: [
+                    GridColumn('Code', width: 130, cell: (s) => gridText(context, s.code, mono: true, bold: true, color: s.isControl ? c.good : null), sortKey: (s) => s.code),
+                    GridColumn('Location', flex: 2, cell: (s) => gridText(context, s.site.isEmpty ? '—' : s.site, size: 12.5), sortKey: (s) => s.site),
+                    GridColumn('Project', flex: 1.5, cell: (s) => gridText(context, s.project, size: 12.5), sortKey: (s) => s.project),
+                    GridColumn('Client', flex: 1.3, cell: (s) => gridText(context, app.client(s.clientId)?.name ?? '—', size: 12.5), sortKey: (s) => app.client(s.clientId)?.name ?? ''),
+                    GridColumn('Matrix', width: 110, cell: (s) => gridText(context, s.matrix.label, size: 12), sortKey: (s) => s.matrix.index),
+                    GridColumn('Collected', width: 105, cell: (s) => gridText(context, shortDate(s.collectedAt), size: 12), sortKey: (s) => s.collectedAt),
+                    GridColumn('Due', width: 100, cell: (s) => gridText(context, s.dueDate == null ? '—' : shortDate(s.dueDate!), size: 12, color: s.overdue ? c.poor : null), sortKey: (s) => s.dueDate ?? DateTime(2100)),
+                    GridColumn('Status', width: 110, cell: (s) => StatusChip(s.status), sortKey: (s) => s.status.index),
+                    GridColumn('Results', width: 76, numeric: true, cell: (s) => gridText(context, '${s.results.length}', mono: true), sortKey: (s) => s.results.length),
+                    GridColumn('Out', width: 60, numeric: true, cell: (s) {
+                      final set = app.limitsFor(s);
+                      final n = s.results.where((r) {
+                        final k = checkResult(r, set).status;
+                        return k == Compliance.exceed || k == Compliance.belowMin;
+                      }).length;
+                      return gridText(context, n == 0 ? '—' : '$n', mono: true, bold: n > 0, color: n > 0 ? c.poor : c.inkDim);
+                    }, sortKey: (s) {
+                      final set = app.limitsFor(s);
+                      return s.results.where((r) => checkResult(r, set).status == Compliance.exceed).length;
+                    }),
+                    GridColumn('Approved', width: 86, cell: (s) {
+                      if (s.results.isEmpty) return gridText(context, '—', color: c.inkDim);
+                      final ok = s.results.every((r) => r.approved);
+                      return Icon(ok ? Icons.verified_rounded : Icons.pending_rounded, size: 18, color: ok ? c.good : c.fair);
+                    }, sortKey: (s) => s.results.where((r) => r.approved).length),
+                  ],
+                ),
+              ),
+            )
+          else
           Expanded(
             child: list.isEmpty
                 ? const Center(

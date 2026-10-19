@@ -9,7 +9,12 @@ import '../widgets/components.dart';
 import '../widgets/share.dart';
 import '../core/docx.dart';
 import '../core/word_reports.dart';
+import 'admin_screen.dart';
+import 'business_screen.dart';
+import 'calibration_screen.dart';
 import 'import_screen.dart';
+import 'map_screen.dart';
+import 'qc_screen.dart';
 import 'investigation_screen.dart';
 import 'register_screen.dart';
 import 'stats_screen.dart';
@@ -35,10 +40,43 @@ class MoreScreen extends StatelessWidget {
           ),
         );
     return Scaffold(
-      appBar: AppBar(title: const Text('More')),
+      appBar: AppBar(title: const Text('Settings & tools')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
         children: [
+          tile(Icons.business_center_rounded, 'Business', 'Requests & quotations, invoices, payments, clients, price list',
+              () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const BusinessScreen()))),
+          tile(Icons.map_rounded, 'Map & GIS', 'Sampling points on a map, KML / GeoJSON export',
+              () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MapScreen()))),
+          tile(Icons.admin_panel_settings_rounded, 'Users & audit trail', app.usersEnabled ? 'Signed in as ${app.userName} (${app.role.label})' : 'Add users, PIN sign-in, roles, approvals',
+              () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AdminScreen()))),
+          tile(Icons.science_rounded, 'Calibration & QC', 'Calibration curves, QC checks and control charts', () {
+            showModalBottomSheet(
+              context: context,
+              showDragHandle: true,
+              builder: (_) => SafeArea(
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  ListTile(
+                    leading: const Icon(Icons.show_chart_rounded),
+                    title: const Text('Calibration'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CalibrationScreen()));
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.verified_rounded),
+                    title: const Text('Quality control'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const QcScreen()));
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                ]),
+              ),
+            );
+          }),
           tile(Icons.travel_explore_rounded, 'Investigations', 'Results matrix, standards, control comparison, findings, report',
               () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const InvestigationsScreen()))),
           tile(Icons.precision_manufacturing_rounded, 'Lab register', 'Instrument calibration & service, reagent expiry & stock',
@@ -100,7 +138,7 @@ class MoreScreen extends StatelessWidget {
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Demo data removed.')));
             }, color: c.fair),
           const SizedBox(height: 16),
-          Center(child: Text('LabLedger 0.4 · data stays on this device', style: LBText.body(c.inkDim, size: 12))),
+          Center(child: Text('LabLedger 1.0 · data stays on this device', style: LBText.body(c.inkDim, size: 12))),
         ],
       ),
     );
@@ -346,6 +384,32 @@ class SettingsScreen extends StatelessWidget {
             ],
           ),
           Text('Next sample code: ${app.nextCode()}', style: LBText.reading(12.5, c.inkDim)),
+          const SectionHeader('Documents & billing'),
+          field('Laboratory address', st.labAddress, (v) => st.labAddress = v),
+          Row(children: [
+            Expanded(child: field('Phone', st.labPhone, (v) => st.labPhone = v)),
+            const SizedBox(width: 10),
+            Expanded(child: field('Email', st.labEmail, (v) => st.labEmail = v)),
+          ]),
+          Row(children: [
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: DropdownButtonFormField<String>(
+                  value: const ['USD', 'LRD', 'EUR', 'GBP'].contains(st.currency) ? st.currency : 'USD',
+                  isDense: true,
+                  decoration: const InputDecoration(labelText: 'Currency', isDense: true),
+                  items: [for (final cur in const ['USD', 'LRD', 'EUR', 'GBP']) DropdownMenuItem(value: cur, child: Text(cur))],
+                  onChanged: (v) => app.update(() => st.currency = v ?? st.currency),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(child: field('Default tax / GST %', '${st.defaultTaxPct}', (v) => st.defaultTaxPct = n(v, st.defaultTaxPct), number: true)),
+            const SizedBox(width: 10),
+            Expanded(child: field('Payment terms (days)', '${st.paymentTermsDays}', (v) => st.paymentTermsDays = int.tryParse(v) ?? st.paymentTermsDays, number: true)),
+          ]),
+          field('Bank / mobile-money details (printed on invoices)', st.bankDetails, (v) => st.bankDetails = v),
           const SectionHeader('QC acceptance limits'),
           field('Calibration r² minimum', '${st.r2Min}', (v) => st.r2Min = n(v, st.r2Min), number: true),
           field('Duplicate RPD maximum (%)', '${st.rpdMax}', (v) => st.rpdMax = n(v, st.rpdMax), number: true),

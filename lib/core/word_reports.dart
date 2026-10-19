@@ -244,6 +244,7 @@ class WordReports {
       final checks = [for (final r in s.results) checkResult(r, set)];
       final bad = checks.where((c) => c.status == Compliance.exceed || c.status == Compliance.belowMin).length;
       d.titleBlock('Laboratory test report · ${s.code}', kicker: st.labName, sub: 'Issued ${shortDate(DateTime.now())}');
+      if (app.needsApproval(s)) d.para('DRAFT: results not yet approved by a reviewer.', bold: true, color: 'C62828');
       final u = s.lat != null && s.lon != null ? toUtm(s.lat!, s.lon!, zone: 29) : null;
       d.table(
         ['Item', 'Details', 'Item', 'Details'],
@@ -300,7 +301,8 @@ class WordReports {
             widths: [1.4, 1.6, 1.6, 2.2]);
       }
       if (s.notes.isNotEmpty) d.para('Remarks: ${s.notes}');
-      d.signatures([('Analysed by', st.analyst), ('Reviewed / approved by', st.reviewer), ('Date', '')]);
+      final appr = s.results.where((r) => r.approved).map((r) => r.approvedBy).toSet().join(', ');
+      d.signatures([('Analysed by', s.results.map((r) => r.enteredBy).where((x) => x.isNotEmpty).toSet().join(', ').isEmpty ? st.analyst : s.results.map((r) => r.enteredBy).where((x) => x.isNotEmpty).toSet().join(', ')), ('Reviewed / approved by', appr.isEmpty ? st.reviewer : appr), ('Date', '')]);
     }
     return d.bytes();
   }

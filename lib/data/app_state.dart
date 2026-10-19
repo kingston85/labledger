@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 
 import '../core/guidelines.dart';
@@ -21,6 +23,15 @@ class LabSettings {
   double spikeLo = 80, spikeHi = 120;
   double crmLo = 90, crmHi = 110;
   double replicateRsdMax = 10;
+  String labAddress = 'Mamba Point, Monrovia, Liberia';
+  String labPhone = '';
+  String labEmail = '';
+  String currency = 'USD';
+  double defaultTaxPct = 0;
+  int paymentTermsDays = 30;
+  String bankDetails = '';
+  bool requireApproval = true;
+  int autoLockMinutes = 10;
 
   Map<String, dynamic> toJson() => {
         'labName': labName,
@@ -37,6 +48,15 @@ class LabSettings {
         'crmLo': crmLo,
         'crmHi': crmHi,
         'replicateRsdMax': replicateRsdMax,
+        'labAddress': labAddress,
+        'labPhone': labPhone,
+        'labEmail': labEmail,
+        'currency': currency,
+        'defaultTaxPct': defaultTaxPct,
+        'paymentTermsDays': paymentTermsDays,
+        'bankDetails': bankDetails,
+        'requireApproval': requireApproval,
+        'autoLockMinutes': autoLockMinutes,
       };
 
   void load(Map<String, dynamic> j) {
@@ -54,6 +74,15 @@ class LabSettings {
     crmLo = (j['crmLo'] as num?)?.toDouble() ?? crmLo;
     crmHi = (j['crmHi'] as num?)?.toDouble() ?? crmHi;
     replicateRsdMax = (j['replicateRsdMax'] as num?)?.toDouble() ?? replicateRsdMax;
+    labAddress = j['labAddress'] as String? ?? labAddress;
+    labPhone = j['labPhone'] as String? ?? labPhone;
+    labEmail = j['labEmail'] as String? ?? labEmail;
+    currency = j['currency'] as String? ?? currency;
+    defaultTaxPct = (j['defaultTaxPct'] as num?)?.toDouble() ?? defaultTaxPct;
+    paymentTermsDays = (j['paymentTermsDays'] as num?)?.toInt() ?? paymentTermsDays;
+    bankDetails = j['bankDetails'] as String? ?? bankDetails;
+    requireApproval = j['requireApproval'] as bool? ?? requireApproval;
+    autoLockMinutes = (j['autoLockMinutes'] as num?)?.toInt() ?? autoLockMinutes;
   }
 }
 
@@ -67,6 +96,14 @@ class AppState extends ChangeNotifier {
   final List<ControlChart> charts = [];
   final List<Instrument> instruments = [];
   final List<Reagent> reagents = [];
+  final List<AppUser> users = [];
+  final List<AuditEntry> audit = [];
+  final List<Client> clients = [];
+  final List<PriceItem> prices = [];
+  final List<LabRequest> requests = [];
+  final List<Invoice> invoices = [];
+  AppUser? currentUser;
+  DateTime lastActivity = DateTime.now();
   bool hasDemo = false;
 
   bool _loaded = false;
@@ -120,6 +157,12 @@ class AppState extends ChangeNotifier {
         'charts': [for (final c in charts) c.toJson()],
         'instruments': [for (final i in instruments) i.toJson()],
         'reagents': [for (final r in reagents) r.toJson()],
+        'users': [for (final u in users) u.toJson()],
+        'audit': [for (final a in audit.length > 5000 ? audit.sublist(audit.length - 5000) : audit) a.toJson()],
+        'clients': [for (final c in clients) c.toJson()],
+        'prices': [for (final p in prices) p.toJson()],
+        'requests': [for (final r in requests) r.toJson()],
+        'invoices': [for (final i in invoices) i.toJson()],
       };
 
   void _fromJson(Map<String, dynamic> j) {
@@ -147,14 +190,165 @@ class AppState extends ChangeNotifier {
     reagents
       ..clear()
       ..addAll(list('reagents').map(Reagent.fromJson));
+    users
+      ..clear()
+      ..addAll(list('users').map(AppUser.fromJson));
+    audit
+      ..clear()
+      ..addAll(list('audit').map(AuditEntry.fromJson));
+    clients
+      ..clear()
+      ..addAll(list('clients').map(Client.fromJson));
+    prices
+      ..clear()
+      ..addAll(list('prices').map(PriceItem.fromJson));
+    requests
+      ..clear()
+      ..addAll(list('requests').map(LabRequest.fromJson));
+    invoices
+      ..clear()
+      ..addAll(list('invoices').map(Invoice.fromJson));
   }
 
   /// Replaces everything with the contents of a backup file.
   void restore(Map<String, dynamic> data) {
+    final who = userName;
     _fromJson(data);
     _ensureBuiltIns();
+    currentUser = null;
+    log('restore', 'Backup', '', '${samples.length} samples restored', asUser: who);
     notifyListeners();
   }
+
+  // ---------------- Users, permissions, audit ----------------
+
+  bool get usersEnabled => users.any((u) => u.active);
+  bool get locked => usersEnabled && currentUser == null;
+  Role get role => currentUser?.role ?? Role.admin;
+  String get userName => currentUser?.name ?? (settings.analyst.isEmpty ? 'Lab user' : settings.analyst);
+  bool get canEdit => role != Role.viewer;
+  bool get canApprove => role == Role.admin || role == Role.reviewer;
+  bool get isAdmin => role == Role.admin;
+
+  static String hashPin(String salt, String pin) => sha256.convert(utf8.encode('$salt:$pin:labledger')).toString();
+
+  static String newSalt() {
+    final r = math.Random.secure();
+    return base64Url.encode(List<int>.generate(12, (_) => r.nextInt(256)));
+  }
+
+  void setPin(AppUser u, String pin) {
+    u.salt = newSalt();
+    u.pinHash = hashPin(u.salt, pin);
+  }
+
+  bool login(AppUser u, String pin) {
+    if (!u.active || hashPin(u.salt, pin) != u.pinHash) {
+      log('login failed', 'User', u.name, '', asUser: u.name);
+      notifyListeners();
+      return false;
+    }
+    currentUser = u;
+    u.lastLogin = DateTime.now();
+    lastActivity = DateTime.now();
+    log('login', 'User', u.name, '');
+    notifyListeners();
+    return true;
+  }
+
+  void logout() {
+    if (currentUser != null) log('logout', 'User', currentUser!.name, '');
+    currentUser = null;
+    notifyListeners();
+  }
+
+  void touch() => lastActivity = DateTime.now();
+
+  /// Appends to the audit trail (call inside or outside update()).
+  void log(String action, String entity, String ref, String detail, {String? asUser}) {
+    audit.add(AuditEntry(DateTime.now(), asUser ?? userName, action, entity, ref, detail));
+  }
+
+  // ---------------- Business helpers ----------------
+
+  Client? client(String? id) {
+    if (id == null) return null;
+    for (final c in clients) {
+      if (c.id == id) return c;
+    }
+    return null;
+  }
+
+  LabRequest? request(String? id) {
+    if (id == null) return null;
+    for (final r in requests) {
+      if (r.id == id) return r;
+    }
+    return null;
+  }
+
+  PriceItem? priceItem(String? id) {
+    if (id == null) return null;
+    for (final p in prices) {
+      if (p.id == id) return p;
+    }
+    return null;
+  }
+
+  /// Next document number like REQ-2026-0007 within the current year.
+  String nextNumber(String prefix, Iterable<String> existing) {
+    final y = DateTime.now().year;
+    var m = 0;
+    final re = RegExp('^$prefix-$y-(\\d+)\$');
+    for (final e in existing) {
+      final mm = re.firstMatch(e);
+      if (mm != null) m = math.max(m, int.parse(mm.group(1)!));
+    }
+    return '$prefix-$y-${(m + 1).toString().padLeft(4, '0')}';
+  }
+
+  String nextRequestNumber() => nextNumber('REQ', requests.map((r) => r.number));
+  String nextInvoiceNumber() => nextNumber('INV', invoices.map((i) => i.number));
+  String nextReceiptNumber() => nextNumber('RCT', invoices.expand((i) => i.payments).map((p) => p.receiptNo));
+
+  List<Sample> samplesForRequest(String requestId) => samples.where((s) => s.requestId == requestId).toList();
+
+  /// Creates an invoice from a request's lines.
+  Invoice invoiceFromRequest(LabRequest r) {
+    final inv = Invoice(
+      id: newId(),
+      number: nextInvoiceNumber(),
+      clientId: r.clientId,
+      requestId: r.id,
+      dueDate: DateTime.now().add(Duration(days: settings.paymentTermsDays)),
+      lines: [for (final l in r.lines) DocLine(description: l.description, qty: l.qty, unitPrice: l.unitPrice, priceItemId: l.priceItemId)],
+      discountPct: r.discountPct,
+      taxPct: r.taxPct,
+      notes: r.project.isEmpty ? '' : 'Project: ${r.project}',
+    );
+    invoices.insert(0, inv);
+    log('create', 'Invoice', inv.number, 'from ${r.number}, ${money(inv.total, settings.currency)}');
+    return inv;
+  }
+
+  double get outstanding => invoices.where((i) => !i.cancelled && i.issued).fold(0.0, (a, i) => a + (i.balance > 0 ? i.balance : 0));
+
+  /// Approves every unapproved result of a sample.
+  int approveSample(Sample s) {
+    var n = 0;
+    for (final r in s.results.where((r) => !r.approved)) {
+      r.approvedBy = userName;
+      r.approvedAt = DateTime.now();
+      n++;
+    }
+    if (n > 0) {
+      if (s.status.index < SampleStatus.reviewed.index) s.status = SampleStatus.reviewed;
+      log('approve', 'Sample', s.code, '$n result${n == 1 ? '' : 's'} approved');
+    }
+    return n;
+  }
+
+  bool needsApproval(Sample s) => settings.requireApproval && s.results.any((r) => !r.approved);
 
   // ---------------- Helpers ----------------
 
@@ -163,6 +357,7 @@ class AppState extends ChangeNotifier {
   Sample addSample(Sample s) {
     samples.insert(0, s);
     settings.nextSeq++;
+    log('create', 'Sample', s.code, [s.matrix.label, s.project, client(s.clientId)?.name ?? ''].where((x) => x.isNotEmpty).join(' · '));
     notifyListeners();
     return s;
   }
@@ -293,6 +488,10 @@ class AppState extends ChangeNotifier {
     qc.removeWhere((q) => q.batch == 'DEMO');
     charts.removeWhere((c) => c.name.startsWith('Demo'));
     instruments.removeWhere((i) => i.notes == 'Demo item');
+    clients.removeWhere((c) => c.notes == 'Demo item');
+    prices.removeWhere((p) => p.notes == 'Demo item');
+    requests.removeWhere((r) => r.notes == 'Demo item');
+    invoices.removeWhere((i) => i.notes == 'Demo item');
     reagents.removeWhere((r) => r.notes == 'Demo item');
     hasDemo = false;
     notifyListeners();
@@ -331,6 +530,7 @@ class AppState extends ChangeNotifier {
       QcCheck(id: newId(), type: QcType.crm, parameter: 'Manganese (Mn)', batch: 'DEMO', values: [0.47, 0.50]),
     ]);
 
+    _loadBusinessDemo(now);
     instruments.addAll([
       Instrument(id: newId(), notes: 'Demo item', name: 'UV-Vis spectrophotometer', model: 'HACH DR6000', serial: 'DR6-1043', location: 'Instrument room',
           lastCalibration: now.subtract(const Duration(days: 350)), calibrationDays: 365, lastService: now.subtract(const Duration(days: 200)), serviceDays: 180),
@@ -495,6 +695,121 @@ class AppState extends ChangeNotifier {
       ));
     }
     return out;
+  }
+
+  void _loadBusinessDemo(DateTime now) {
+    const tag = 'Demo item';
+    final c1 = Client(id: newId(), name: 'Nimba Iron Ore Ltd (demo)', type: ClientType.company, contact: 'Environment Manager', phone: '+231 77 000 0001', email: 'env@example.com', address: 'Yekepa, Nimba County', notes: tag);
+    final c2 = Client(id: newId(), name: 'Monrovia Water Utility (demo)', type: ClientType.government, contact: 'Water Quality Officer', phone: '+231 88 000 0002', address: 'Monrovia', notes: tag);
+    final c3 = Client(id: newId(), name: 'Green Coast NGO (demo)', type: ClientType.ngo, contact: 'Programme Lead', email: 'info@example.org', address: 'Buchanan, Grand Bassa', notes: tag);
+    clients.addAll([c1, c2, c3]);
+    PriceItem pi(String code, String name, String cat, double price, int tat, [List<String> params = const []]) =>
+        PriceItem(id: newId(), code: code, name: name, category: cat, price: price, turnaroundDays: tat, parameters: [...params], notes: tag);
+    final items = [
+      pi('PHY-01', 'Field parameters (pH, EC, TDS, turbidity, ORP, salinity)', 'Physical', 15, 1,
+          ['pH', 'Electrical conductivity', 'Total dissolved solids', 'Turbidity', 'ORP', 'Salinity']),
+      pi('PHY-02', 'Total suspended solids', 'Physical', 10, 3, ['Total suspended solids']),
+      pi('NUT-01', 'Nutrients & ions package', 'Chemical', 40, 5,
+          ['Nitrate (as NO3)', 'Nitrite (as NO2)', 'Ammonia', 'Phosphate', 'Sulfate', 'Chloride', 'Total hardness (CaCO3)']),
+      pi('MET-01', 'Mining metals suite (18 elements)', 'Metals', 120, 10, [
+        'Aluminium (Al)', 'Bismuth (Bi)', 'Iron (Fe)', 'Arsenic (As)', 'Tin (Sn)', 'Selenium (Se)', 'Barium (Ba)', 'Beryllium (Be)', 'Boron (B)',
+        'Cadmium (Cd)', 'Chromium (Cr)', 'Copper (Cu)', 'Lead (Pb)', 'Lithium (Li)', 'Manganese (Mn)', 'Strontium (Sr)', 'Titanium (Ti)', 'Zinc (Zn)',
+      ]),
+      pi('MET-02', 'Single metal (spectrophotometer)', 'Metals', 12, 5),
+      pi('MIC-01', 'E. coli & total coliforms', 'Microbiology', 25, 2, ['E. coli', 'Total coliforms']),
+      pi('SOL-01', 'Soil / sediment metals (digestion + suite)', 'Soil', 150, 14),
+      pi('FLD-01', 'Field sampling (per day, team of 3)', 'Field services', 250, 0),
+      pi('RPT-01', 'Investigation report (interpretation)', 'Reporting', 200, 5),
+    ];
+    prices.addAll(items);
+    PriceItem byCode(String c) => items.firstWhere((i) => i.code == c);
+    DocLine line(String code, double qty) => DocLine(description: '${byCode(code).code} · ${byCode(code).name}', qty: qty, unitPrice: byCode(code).price, priceItemId: byCode(code).id);
+
+    final r1 = LabRequest(
+      id: newId(),
+      number: 'REQ-${now.year}-0001',
+      clientId: c1.id,
+      date: DateTime(2026, 8, 12),
+      dueDate: DateTime(2026, 8, 26),
+      project: 'Demo: Bolo Town water investigation',
+      status: RequestStatus.completed,
+      lines: [line('PHY-01', 9), line('NUT-01', 9), line('MET-01', 9), line('FLD-01', 2), line('RPT-01', 1)],
+      notes: tag,
+    );
+    final r2 = LabRequest(
+      id: newId(),
+      number: 'REQ-${now.year}-0002',
+      clientId: c2.id,
+      date: now.subtract(const Duration(days: 3)),
+      dueDate: now.add(const Duration(days: 7)),
+      project: 'Quarterly distribution network check',
+      status: RequestStatus.quote,
+      lines: [line('PHY-01', 12), line('MIC-01', 12), line('MET-02', 12)],
+      discountPct: 10,
+      notes: tag,
+    );
+    final r3 = LabRequest(
+      id: newId(),
+      number: 'REQ-${now.year}-0003',
+      clientId: c3.id,
+      date: now.subtract(const Duration(days: 10)),
+      dueDate: now.subtract(const Duration(days: 1)),
+      project: 'Demo: Bonlah soil (Gbai River)',
+      status: RequestStatus.inProgress,
+      lines: [line('SOL-01', 7), line('RPT-01', 1)],
+      notes: tag,
+    );
+    requests.addAll([r3, r2, r1]);
+    for (final smp in samples) {
+      if (smp.project == r1.project) {
+        smp.clientId = c1.id;
+        smp.requestId = r1.id;
+        smp.dueDate = r1.dueDate;
+        smp.status = SampleStatus.reported;
+        smp.reportedAt = DateTime(2026, 8, 22 + (smp.code.hashCode % 4).abs());
+        for (final res in smp.results) {
+          res.approvedBy = 'Lab supervisor (demo)';
+          res.approvedAt = DateTime(2026, 8, 21);
+        }
+      } else if (smp.project == r3.project) {
+        smp.clientId = c3.id;
+        smp.requestId = r3.id;
+        smp.dueDate = r3.dueDate;
+      }
+    }
+    final i1 = Invoice(
+      id: newId(),
+      number: 'INV-${now.year}-0001',
+      clientId: c1.id,
+      requestId: r1.id,
+      date: DateTime(2026, 8, 23),
+      dueDate: DateTime(2026, 9, 22),
+      lines: [for (final l in r1.lines) DocLine(description: l.description, qty: l.qty, unitPrice: l.unitPrice, priceItemId: l.priceItemId)],
+      payments: [Payment(id: newId(), date: DateTime(2026, 9, 10), amount: 1500, method: 'Bank transfer', reference: 'TRF-88213', receiptNo: 'RCT-${now.year}-0001')],
+      notes: tag,
+    );
+    final i2 = Invoice(
+      id: newId(),
+      number: 'INV-${now.year}-0002',
+      clientId: c3.id,
+      requestId: r3.id,
+      date: now.subtract(const Duration(days: 40)),
+      dueDate: now.subtract(const Duration(days: 10)),
+      lines: [DocLine(description: 'FLD-01 · Field sampling (per day, team of 3)', qty: 1, unitPrice: 250)],
+      notes: tag,
+    );
+    final i3 = Invoice(
+      id: newId(),
+      number: 'INV-${now.year}-0003',
+      clientId: c2.id,
+      date: now.subtract(const Duration(days: 75)),
+      dueDate: now.subtract(const Duration(days: 45)),
+      lines: [DocLine(description: 'PHY-01 · Field parameters', qty: 10, unitPrice: 15), DocLine(description: 'MIC-01 · E. coli & total coliforms', qty: 10, unitPrice: 25)],
+      payments: [Payment(id: newId(), date: now.subtract(const Duration(days: 50)), amount: 400, method: 'Mobile money', reference: 'MM-55102', receiptNo: 'RCT-${now.year}-0002')],
+      notes: tag,
+    );
+    invoices.addAll([i3, i2, i1].reversed);
+    audit.add(AuditEntry(now.subtract(const Duration(minutes: 5)), 'System', 'create', 'Demo', 'LabLedger', 'Demo data loaded'));
   }
 
   @override

@@ -65,7 +65,10 @@ class SampleDetailScreen extends StatelessWidget {
                   ),
                 );
                 if (ok == true && context.mounted) {
-                  app.update(() => app.samples.remove(s));
+                  app.update(() {
+                    app.samples.remove(s);
+                    app.log('delete', 'Sample', s.code, '${s.results.length} results');
+                  });
                   Navigator.pop(context);
                 }
               }
@@ -79,11 +82,13 @@ class SampleDetailScreen extends StatelessWidget {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => showResultForm(context, s),
-        icon: const Icon(Icons.add_rounded),
-        label: const Text('Add result'),
-      ),
+      floatingActionButton: !app.canEdit
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: () => showResultForm(context, s),
+              icon: const Icon(Icons.add_rounded),
+              label: const Text('Add result'),
+            ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(18, 0, 18, 96),
         children: [
@@ -98,6 +103,40 @@ class SampleDetailScreen extends StatelessWidget {
           const SizedBox(height: 14),
           _StatusStepper(sample: s),
           const SizedBox(height: 14),
+          if (s.results.isNotEmpty && app.settings.requireApproval)
+            () {
+              final pending = s.results.where((r) => !r.approved).length;
+              final approver = s.results.where((r) => r.approved).map((r) => r.approvedBy).toSet().join(', ');
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 14),
+                child: LBCard(
+                  borderColor: (pending > 0 ? c.fair : c.good).withOpacity(0.5),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  child: Row(children: [
+                    Icon(pending > 0 ? Icons.pending_actions_rounded : Icons.verified_rounded, color: pending > 0 ? c.fair : c.good),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        pending > 0 ? '$pending result${pending == 1 ? '' : 's'} awaiting approval' : 'All results approved${approver.isEmpty ? '' : ' by $approver'}',
+                        style: LBText.body(c.ink, size: 13, weight: FontWeight.w600),
+                      ),
+                    ),
+                    if (pending > 0 && app.canApprove)
+                      FilledButton.tonalIcon(
+                        onPressed: () {
+                          late int n;
+                          app.update(() => n = app.approveSample(s));
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$n results approved by ${app.userName}.')));
+                        },
+                        icon: const Icon(Icons.approval_rounded, size: 18),
+                        label: const Text('Approve all'),
+                      )
+                    else if (pending > 0)
+                      Text('Reviewer sign-off needed', style: LBText.body(c.inkDim, size: 11.5)),
+                  ]),
+                ),
+              );
+            }(),
           LBCard(
             child: Column(
               children: [
@@ -109,6 +148,10 @@ class SampleDetailScreen extends StatelessWidget {
                     s.lat != null && s.lon != null ? '${s.lat!.toStringAsFixed(5)}, ${s.lon!.toStringAsFixed(5)}' : '—'),
                 if (s.lat != null && s.lon != null) _kv(context, 'UTM', toUtm(s.lat!, s.lon!, zone: 29).toString()),
                 _kv(context, 'Limits', set?.name ?? 'None'),
+                if (app.client(s.clientId) != null) _kv(context, 'Client', app.client(s.clientId)!.name),
+                if (app.request(s.requestId) != null) _kv(context, 'Request', app.request(s.requestId)!.number),
+                if (s.dueDate != null) _kv(context, 'Due', '${shortDate(s.dueDate!)}${s.overdue ? '  (OVERDUE)' : ''}'),
+                if (s.reportedAt != null) _kv(context, 'Reported', '${dateTime(s.reportedAt!)}${s.turnaroundDays == null ? '' : ' · ${s.turnaroundDays!.toStringAsFixed(1)} d turnaround'}'),
                 if (s.notes.isNotEmpty) _kv(context, 'Remarks', s.notes),
               ],
             ),
@@ -236,10 +279,20 @@ class _StatusStepper extends StatelessWidget {
         for (final st in SampleStatus.values) ...[
           Expanded(
             child: GestureDetector(
-              onTap: () => app.update(() {
-                sample.status = st;
-                if (st.index >= SampleStatus.received.index && sample.receivedAt == null) sample.receivedAt = DateTime.now();
-              }),
+              onTap: () {
+                if (!app.canEdit) return;
+                if (st == SampleStatus.reported && app.needsApproval(sample)) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Approve all results before marking the sample as reported.')));
+                  return;
+                }
+                if (st == sample.status) return;
+                app.update(() {
+                  final from = sample.status.label;
+                  sample.status = st;
+                  if (st.index >= SampleStatus.received.index && sample.receivedAt == null) sample.receivedAt = DateTime.now();
+                  app.log('status', 'Sample', sample.code, '$from → ${st.label}');
+                });
+              },
               child: Column(
                 children: [
                   AnimatedContainer(
@@ -306,7 +359,10 @@ class _ResultRow extends StatelessWidget {
             children: [
               Text('${resultText(r)} ${r.unit}', style: LBText.reading(15, bad ? c.poor : c.ink, weight: FontWeight.w700)),
               const SizedBox(height: 4),
-              ComplianceChip(check.status),
+              Row(mainAxisSize: MainAxisSize.min, children: [
+                if (result.approved) Padding(padding: const EdgeInsets.only(right: 6), child: Tooltip(message: 'Approved by ${result.approvedBy}', child: Icon(Icons.verified_rounded, size: 16, color: c.good))),
+                ComplianceChip(check.status),
+              ]),
             ],
           ),
         ],
@@ -422,7 +478,8 @@ class _ResultFormState extends State<_ResultForm> {
       return;
     }
     app.update(() {
-      final r = widget.existing ?? Result(id: newId(), parameter: p);
+      final r = widget.existing ?? Result(id: newId(), parameter: p, enteredBy: app.userName);
+      final before = widget.existing == null ? null : '${resultText(widget.existing!)} ${widget.existing!.unit}';
       r.parameter = p;
       r.value = _belowLod ? null : v;
       r.belowLod = _belowLod;
@@ -432,9 +489,17 @@ class _ResultFormState extends State<_ResultForm> {
       r.analyst = _analyst.text.trim();
       r.note = _note.text.trim();
       r.replicates = _belowLod ? [] : parsed.replicates;
+      final after = '${resultText(r)} ${r.unit}';
       if (widget.existing == null) {
         widget.sample.results.add(r);
         if (widget.sample.status.index < SampleStatus.inAnalysis.index) widget.sample.status = SampleStatus.inAnalysis;
+        app.log('create', 'Result', widget.sample.code, '$p = $after');
+      } else if (before != after) {
+        if (r.approved) {
+          r.approvedAt = null;
+          r.approvedBy = '';
+        }
+        app.log('update', 'Result', widget.sample.code, '$p: $before → $after${r.note.isEmpty ? '' : ' (${r.note})'}');
       }
     });
     Navigator.pop(context);
@@ -567,7 +632,10 @@ class _ResultFormState extends State<_ResultForm> {
                   IconButton(
                     tooltip: 'Delete result',
                     onPressed: () {
-                      app.update(() => widget.sample.results.remove(widget.existing));
+                      app.update(() {
+                        widget.sample.results.remove(widget.existing);
+                        app.log('delete', 'Result', widget.sample.code, '${widget.existing!.parameter} = ${resultText(widget.existing!)} ${widget.existing!.unit}');
+                      });
                       Navigator.pop(context);
                     },
                     icon: Icon(Icons.delete_outline_rounded, color: c.poor),
